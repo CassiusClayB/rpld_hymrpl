@@ -1,0 +1,70 @@
+--- Modificações no rpld.c para leitura do FIFO de troca de perfil ---
+
+Adicionar no topo do rpld.c (após os includes existentes):
+
+    #include <fcntl.h>
+    #include <sys/stat.h>
+
+    #define HYMRPL_FIFO_PATH "/tmp/hymrpl_cmd"
+
+Adicionar esta função antes do main() ou do loop principal:
+
+    /*
+     * HyMRPL: check FIFO for profile change commands.
+     * Called periodically from the main event loop.
+     * Commands: "CLASS_S\n" or "CLASS_N\n"
+     */
+    static void hymrpl_check_fifo(struct list_head *ifaces)
+    {
+            char buf[32];
+            int fd, n;
+            struct iface *iface;
+            struct rpl *rpl;
+            struct dag *dag;
+
+            fd = open(HYMRPL_FIFO_PATH, O_RDONLY | O_NONBLOCK);
+            if (fd < 0)
+                    return;
+
+            n = read(fd, buf, sizeof(buf) - 1);
+            close(fd);
+
+            if (n <= 0)
+                    return;
+
+            buf[n] = '\0';
+
+            uint8_t new_class;
+            if (strstr(buf, "CLASS_N"))
+                    new_class = HYMRPL_CLASS_N;
+            else if (strstr(buf, "CLASS_S"))
+                    new_class = HYMRPL_CLASS_S;
+            else
+                    return;
+
+            /* Apply to all dags on all ifaces */
+            list_for_each_entry(iface, ifaces, list) {
+                    iface->node_class = new_class;
+                    list_for_each_entry(rpl, &iface->rpls, list) {
+                            list_for_each_entry(dag, &rpl->dags, list) {
+                                    if (dag->node_class != new_class) {
+                                            flog(LOG_INFO,
+                                                 "HYMRPL: profile switch %s -> %s",
+                                                 dag->node_class == HYMRPL_CLASS_S ? "S" : "N",
+                                                 new_class == HYMRPL_CLASS_S ? "S" : "N");
+                                            dag->node_class = new_class;
+                                    }
+                            }
+                    }
+            }
+    }
+
+No main loop (dentro do callback do timer ou do ev_loop), adicionar chamada:
+
+    hymrpl_check_fifo(&ifaces);
+
+Também criar o FIFO na inicialização (no main, antes do loop):
+
+    /* HyMRPL: create FIFO for runtime profile changes */
+    unlink(HYMRPL_FIFO_PATH);
+    mkfifo(HYMRPL_FIFO_PATH, 0666);

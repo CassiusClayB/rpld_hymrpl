@@ -1,0 +1,10 @@
+# Build artifacts
+build/
+backup_original/
+
+# Pcap files (binary, large)
+*.pcap
+
+# Python cache
+__pycache__/
+*.pyc

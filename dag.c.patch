@@ -1,0 +1,74 @@
+--- Modificações no dag.c para HyMRPL ---
+
+Apenas dois trechos precisam ser alterados no dag.c original.
+O resto do arquivo permanece idêntico.
+
+=== ALTERAÇÃO 1: na função dag_init(), após "dag->mop = mop;" adicionar: ===
+
+    dag->mop = mop;
+    dag->node_class = HYMRPL_CLASS_S;  /* default: storing-like */
+
+=== ALTERAÇÃO 2: na função dag_build_dao(), substituir o switch inteiro: ===
+
+Trocar:
+
+        switch (dag->mop) {
+        case RPL_DIO_STORING_NO_MULTICAST:
+                /* fall-through */
+        case RPL_DIO_STORING_MULTICAST:
+                list_for_each_entry(child, &dag->childs, list) {
+                        prefix.prefix = child->addr;
+                        prefix.len = 128;
+
+                        append_target(&prefix, sb);
+                }
+                break;
+        default:
+                break;
+        }
+
+Por:
+
+        switch (dag->mop) {
+        case RPL_DIO_STORING_NO_MULTICAST:
+        case RPL_DIO_STORING_MULTICAST:
+                list_for_each_entry(child, &dag->childs, list) {
+                        prefix.prefix = child->addr;
+                        prefix.len = 128;
+                        append_target(&prefix, sb);
+                }
+                break;
+        case RPL_DIO_NONSTORING:
+                /*
+                 * Non-storing: only send own target (already appended above).
+                 * Transit info with parent address is also already appended.
+                 * No child aggregation needed — root builds full tree from
+                 * individual DAOs.
+                 */
+                break;
+        case RPL_DIO_HYBRID:
+                /*
+                 * HyMRPL: Classe S nodes include child targets in DAO
+                 * (storing-like aggregation). This allows the root to learn
+                 * about nodes behind Classe S nodes even if intermediate
+                 * Classe N nodes don't aggregate.
+                 *
+                 * Classe N nodes only send their own target (already appended
+                 * above), matching non-storing behavior.
+                 */
+                if (dag->node_class == HYMRPL_CLASS_S) {
+                        list_for_each_entry(child, &dag->childs, list) {
+                                prefix.prefix = child->addr;
+                                prefix.len = 128;
+                                append_target(&prefix, sb);
+                        }
+                        flog(LOG_INFO, "HYMRPL: class-S DAO includes child targets");
+                } else {
+                        flog(LOG_INFO, "HYMRPL: class-N DAO (own target only)");
+                }
+                break;
+        default:
+                break;
+        }
+
+=== Nenhuma outra alteração necessária no dag.c ===
