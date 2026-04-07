@@ -281,6 +281,19 @@ rpld_hymrpl/
 
 ---
 
+## 10. VM Pré-configurada
+
+Uma VM pronta com todo o ambiente configurado (kernel 6.11 com SRH, rpld com patches HyMRPL, Mininet-WiFi com 6LoWPAN) está disponível para download:
+
+**[Download da VM (OVA ~7 GB)](https://drive.google.com/file/d/1gqdqieW8yGN4DSRTHHDztnRtNtA46LMs/view?usp=sharing)**
+
+Para importar:
+1. Abra o VirtualBox e vá em `Arquivo > Importar Appliance`
+2. Selecione o arquivo `mn-wifi-vm.ova`
+3. Após a importação, inicie a VM e verifique o kernel: `uname -r` (deve ser 6.11.x)
+
+---
+
 ## Referências
 
 - RFC 6550 — RPL: IPv6 Routing Protocol for Low-Power and Lossy Networks
