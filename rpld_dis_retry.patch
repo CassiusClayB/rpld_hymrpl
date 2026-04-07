@@ -1,0 +1,19 @@
+--- a/rpld.c
++++ b/rpld.c
+@@ -85,8 +85,16 @@
+ static void send_dis_cb(EV_P_ ev_timer *w, int revents)
+ {
+ 	struct iface *iface = container_of(w, struct iface, dis_w);
++	struct rpl *rpl;
++	int has_dag = 0;
+ 
+-	ev_timer_stop(loop, w);
++	/* Check if we already joined a DODAG */
++	list_for_each_entry(rpl, &iface->rpls, list) {
++		if (!list_empty(&rpl->dags)) { has_dag = 1; break; }
++	}
++	/* Stop retrying once we have a dag */
++	if (has_dag)
++		ev_timer_stop(loop, w);
+ 	send_dis(sock, iface);
+ }

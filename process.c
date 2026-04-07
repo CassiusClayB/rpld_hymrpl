@@ -120,14 +120,22 @@ static void process_dio(int sock, struct iface *iface, const void *msg,
                 break;
         case RPL_DIO_HYBRID:
                 /*
-                 * HyMRPL: In hybrid mode, all nodes send DAO toward the root
-                 * so the root can build the complete topology tree.
-                 * Classe S nodes additionally forward DAOs from children
-                 * (handled in dag_build_dao).
+                 * HyMRPL: In hybrid mode, send DAO to BOTH parent and root.
+                 * - DAO to parent: allows Classe S intermediate nodes to
+                 *   install local downward routes (storing-like behavior).
+                 * - DAO to root: allows the root to build the complete
+                 *   source routing tree for Classe N paths.
+                 * This dual-DAO approach ensures both routing paradigms
+                 * work simultaneously in the same DODAG.
                  */
-                send_dao(sock, &dag->dodagid, dag);
-                flog(LOG_INFO, "HYMRPL: sent DAO to root (class=%s)",
+                send_dao(sock, &dag->parent->addr, dag);
+                flog(LOG_INFO, "HYMRPL: sent DAO to parent (class=%s)",
                      dag->node_class == HYMRPL_CLASS_S ? "S" : "N");
+                /* Also send to root if parent is not root */
+                if (dag->parent->rank > 1) {
+                        send_dao(sock, &dag->dodagid, dag);
+                        flog(LOG_INFO, "HYMRPL: sent DAO to root");
+                }
                 break;
         default:
                 break;
