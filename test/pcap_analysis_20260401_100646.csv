@@ -1,0 +1,4 @@
+convergence_s,mode,root_DAO,root_DIO,root_MOP,root_SRH,root_echo_total,root_echo_with_srh,run,total_DAO,total_DIO,total_SRH
+3.58,storing,38,55,[],0,21,0,1,146,229,0
+0.51,nonstoring,69,52,[],1,1,1,1,292,216,4
+0.51,hybrid,69,52,[],1,1,1,1,292,216,4

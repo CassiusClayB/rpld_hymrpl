@@ -225,34 +225,17 @@ O monitor escreve a decisão no FIFO `/tmp/hymrpl_cmd` e registra eventos em `/t
 
 ---
 
-## 8. Script de Topologia de Teste
+## 8. Execução dos Experimentos
 
-A pasta `test/` contém o script de topologia base e os arquivos de configuração. Os demais scripts de experimento (benchmark, mobilidade, escalabilidade, churn, etc.) foram utilizados exclusivamente durante a avaliação da dissertação e não são incluídos neste repositório.
+A documentação completa de como executar todos os experimentos (benchmark, mobilidade, escalabilidade, churn, captura de pacotes, etc.) está em:
 
-### `test/hymrpl_topology.py`
+📄 **[EXPERIMENTS.md](EXPERIMENTS.md)**
 
-Cria a topologia base de 5 nós no Mininet-WiFi com 6LoWPAN e inicia o rpld em modo híbrido (MOP=6):
+Para um teste rápido da topologia interativa:
 
 ```bash
 sudo python3 test/hymrpl_topology.py
 ```
-
-**O que o script faz:**
-
-1. Cria 5 sensores com interfaces IEEE 802.15.4 virtuais (`panid=0xbeef`)
-2. Estabelece os enlaces: sensor1↔sensor2, sensor1↔sensor3, sensor3↔sensor4, sensor4↔sensor5
-3. Gera dinamicamente o arquivo de configuração Lua para cada nó com a classe atribuída:
-   - sensor1: Root, Classe S
-   - sensor2: Classe N
-   - sensor3: Classe S
-   - sensor4: Classe N
-   - sensor5: Classe N (nó móvel)
-4. Inicia o daemon `rpld` em cada nó com MOP=6
-5. Aguarda 20s para convergência da DODAG
-6. Testa conectividade via `ping6` do root para todos os nós
-7. Abre a CLI do Mininet-WiFi para interação manual
-
-A partir da CLI, é possível verificar rotas (`ip -6 route`), executar `traceroute6`, capturar pacotes com `tcpdump` e testar a troca dinâmica de classe via FIFO.
 
 ---
 
@@ -261,6 +244,7 @@ A partir da CLI, é possível verificar rotas (`ip -6 route`), executar `tracero
 ```
 rpld_hymrpl/
 ├── README.md                  # Este arquivo
+├── EXPERIMENTS.md             # Guia de execução dos experimentos
 ├── rpl.h                      # Header RPL com MOP=6 e defines de classe
 ├── dag.h                      # Struct dag com campo node_class
 ├── config.h                   # Struct iface com campo node_class
@@ -268,15 +252,39 @@ rpld_hymrpl/
 ├── dag.c.patch                # Patch para dag.c (agregação de targets)
 ├── config.c.patch             # Patch para config.c (leitura de node_class)
 ├── rpld_fifo.c.patch          # Patch para FIFO no loop principal
+├── rpld_dis_retry.patch       # Patch para retry de DIS
 ├── build_kernel.sh            # Compilação do kernel 6.11 com SRH
 ├── apply_patches.sh           # Aplicação dos patches no rpld original
 ├── install_on_vm.sh           # Instalação completa na VM
 ├── hymrpl_monitor.py          # Monitor de adaptação dinâmica
 └── test/
-    ├── lowpan0_hybrid.conf        # Config do root (MOP=6, Classe S)
-    ├── lowpan_hybrid_classS.conf  # Config Classe S (non-root)
-    ├── lowpan_hybrid_classN.conf  # Config Classe N (non-root)
-    └── hymrpl_topology.py         # Topologia base de 5 nós
+    ├── lowpan0_hybrid.conf            # Config do root (MOP=6, Classe S)
+    ├── lowpan_hybrid_classS.conf      # Config Classe S (non-root)
+    ├── lowpan_hybrid_classN.conf      # Config Classe N (non-root)
+    ├── hymrpl_topology.py             # Topologia interativa de 5 nós
+    ├── hymrpl_run_mode.py             # Benchmark com topologia persistente
+    ├── hymrpl_run_all.sh              # Execução sequencial dos 3 modos
+    ├── hymrpl_benchmark.py            # Benchmark estático (5 nós)
+    ├── hymrpl_hybrid_advantage.py     # Experimento Hybrid Advantage
+    ├── hymrpl_dynamic_switch.py       # Troca dinâmica de classe via FIFO
+    ├── hymrpl_adaptive_switch.py      # Decisão adaptativa de classe
+    ├── hymrpl_mobility_v2.py          # Mobilidade com tc netem
+    ├── hymrpl_pcap_analysis.py        # Captura e análise de pacotes
+    ├── hymrpl_scalability_10.py       # Escalabilidade 10 nós
+    ├── hymrpl_scalability_15.py       # Escalabilidade 15 nós
+    ├── hymrpl_scalability_20.py       # Escalabilidade 20 nós
+    ├── hymrpl_scalability_50.py       # Escalabilidade 50 nós
+    ├── hymrpl_churn_mobility.py       # Churn com 20 nós
+    ├── hymrpl_mesh_resilience.py      # Resiliência em topologia mesh
+    ├── hymrpl_full_experiment.py      # Experimento completo
+    ├── hymrpl_collect_metrics.py      # Coleta automatizada de métricas
+    ├── hymrpl_gen_latex.py            # Geração de tabelas LaTeX
+    ├── analyze_all.py                 # Análise geral dos resultados
+    ├── analyze_hybrid_advantage.py    # Análise do Hybrid Advantage
+    ├── analyze_dynamic_switch.py      # Análise da troca dinâmica
+    ├── analyze_adaptive_switch.py     # Análise da decisão adaptativa
+    ├── calc_stats.py                  # Cálculo de estatísticas
+    └── pcaps/                         # Capturas de pacotes (.pcap)
 ```
 
 ---
