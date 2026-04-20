@@ -55,6 +55,18 @@ struct dag {
         ev_tstamp trickle_t;
         ev_timer trickle_w;
 
+        /*
+         * HyMRPL: parent liveness tracking.
+         * Updated every time a DIO is received from the current parent.
+         * A periodic timer checks whether the parent has gone silent for
+         * longer than PARENT_TIMEOUT_FACTOR × trickle_t seconds.  When
+         * that happens the parent is invalidated, stale routes are flushed,
+         * and the node accepts the next DIO from any neighbor — enabling
+         * reconvergence through alternative mesh paths.
+         */
+        ev_tstamp parent_last_seen;
+        ev_timer parent_check_w;
+
         const struct iface *iface;
         const struct rpl *rpl;
 

@@ -1,0 +1,120 @@
+--- Parent liveness detection for rpld ---
+--- Fixes reconvergence in mesh topologies where the rpld event loop
+--- continues running but the parent node has silently departed.
+---
+--- Without this patch, when a parent dies the child node keeps stale
+--- routes pointing at the dead parent indefinitely.  The Trickle timer
+--- keeps sending DIOs but the node never invalidates its parent or
+--- accepts a DIO from an alternative neighbor.
+---
+--- The fix adds a periodic timer (parent_check_cb) that runs every
+--- PARENT_CHECK_INTERVAL seconds.  If no DIO has been received from
+--- the current parent within PARENT_TIMEOUT_FACTOR × trickle_t
+--- seconds, the parent is invalidated (rank set to UINT16_MAX) and
+--- stale routes are flushed.  The next DIO from any neighbor will
+--- be accepted as the new parent, enabling reconvergence through
+--- alternative mesh paths.
+
+=== CHANGES TO rpld.c ===
+
+1. Add at the top (after existing includes):
+
+    #include "netlink.h"   /* for nl_del_route_via, nl_add_route_default */
+
+    /* Parent liveness: check interval and timeout multiplier.
+     * The parent is considered dead if no DIO has been received
+     * from it within PARENT_TIMEOUT_FACTOR × trickle_t seconds.
+     * The check runs every PARENT_CHECK_INTERVAL seconds.
+     */
+    #define PARENT_CHECK_INTERVAL   5.0
+    #define PARENT_TIMEOUT_FACTOR   4.0
+
+2. Add this callback function (before main or near trickle_cb):
+
+    /*
+     * HyMRPL: periodic parent liveness check.
+     * Invalidates the parent if no DIO has been received from it
+     * within the timeout window, enabling reconvergence via
+     * alternative neighbors in mesh topologies.
+     */
+    static void parent_check_cb(EV_P_ ev_timer *w, int revents)
+    {
+            struct dag *dag = container_of(w, struct dag, parent_check_w);
+            ev_tstamp now = ev_now(EV_A);
+            ev_tstamp timeout;
+            char addr_str[INET6_ADDRSTRLEN];
+
+            /* Root nodes don't have a parent to check */
+            if (dag->my_rank == 1)
+                    return;
+
+            /* No parent yet — nothing to check */
+            if (!dag->parent)
+                    return;
+
+            /* Already invalidated — waiting for a new DIO */
+            if (dag->parent->rank == UINT16_MAX)
+                    return;
+
+            timeout = PARENT_TIMEOUT_FACTOR * dag->trickle_t;
+            if ((now - dag->parent_last_seen) < timeout)
+                    return;
+
+            /* Parent has gone silent — invalidate */
+            addrtostr(&dag->parent->addr, addr_str, sizeof(addr_str));
+            flog(LOG_INFO,
+                 "HYMRPL: parent %s silent for %.1fs (timeout %.1fs), invalidating",
+                 addr_str, now - dag->parent_last_seen, timeout);
+
+            dag->parent->rank = UINT16_MAX;
+            dag->my_rank = UINT16_MAX;
+
+            /* Flush stale routes pointing at the dead parent */
+            nl_del_route_via(dag->iface->ifindex, &dag->dest, NULL);
+
+            /* Reset Trickle to accelerate DIO exchange with neighbors */
+            ev_timer_stop(EV_A_ &dag->trickle_w);
+            ev_timer_set(&dag->trickle_w, 1.0, dag->trickle_t);
+            ev_timer_start(EV_A_ &dag->trickle_w);
+
+            flog(LOG_INFO,
+                 "HYMRPL: parent invalidated, accepting next DIO from any neighbor");
+    }
+
+3. In rpld_setup(), after the ev_timer_start for trickle_w, add:
+
+                                /* HyMRPL: start parent liveness timer */
+                                dag->parent_last_seen = ev_now(loop);
+                                ev_timer_init(&dag->parent_check_w,
+                                              parent_check_cb,
+                                              PARENT_CHECK_INTERVAL,
+                                              PARENT_CHECK_INTERVAL);
+                                ev_timer_start(loop, &dag->parent_check_w);
+
+4. In dag_init_timer() (the function called when a non-root node
+   creates a dag after receiving a DIO), add after the trickle start:
+
+    void dag_init_timer(struct dag *dag)
+    {
+            ev_timer_init(&dag->trickle_w, trickle_cb,
+                          dag->trickle_t, dag->trickle_t);
+            ev_timer_start(foo, &dag->trickle_w);
+
+            /* HyMRPL: start parent liveness timer for non-root nodes */
+            dag->parent_last_seen = ev_now(foo);
+            ev_timer_init(&dag->parent_check_w, parent_check_cb,
+                          PARENT_CHECK_INTERVAL, PARENT_CHECK_INTERVAL);
+            ev_timer_start(foo, &dag->parent_check_w);
+    }
+
+=== CHANGES TO process.c (already applied in rpld_hymrpl/process.c) ===
+
+In process_dio(), after creating or looking up the parent, the code
+now updates dag->parent_last_seen when a DIO arrives from the current
+parent, and accepts any neighbor as a new parent when the current
+parent has been invalidated (rank == UINT16_MAX).
+
+=== CHANGES TO dag.h (already applied in rpld_hymrpl/dag.h) ===
+
+Added parent_last_seen (ev_tstamp) and parent_check_w (ev_timer)
+fields to struct dag.

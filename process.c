@@ -91,6 +91,28 @@ static void process_dio(int sock, struct iface *iface, const void *msg,
                         return;
         }
 
+        /*
+         * HyMRPL: track parent liveness.
+         * If the DIO comes from our current parent, refresh the
+         * last-seen timestamp.  If the parent was invalidated
+         * (rank == UINT16_MAX) by the liveness timer, accept any
+         * neighbor with a valid rank as the new parent.
+         */
+        if (dag_is_peer(dag->parent, &addr->sin6_addr)) {
+                dag->parent_last_seen = ev_now(EV_DEFAULT);
+        } else if (dag->parent->rank == UINT16_MAX) {
+                /* Parent was invalidated — adopt this neighbor */
+                char old_str[INET6_ADDRSTRLEN];
+                addrtostr(&dag->parent->addr, old_str, sizeof(old_str));
+                flog(LOG_INFO,
+                     "HYMRPL: adopting new parent %s (old %s was dead)",
+                     addr_str, old_str);
+                memcpy(&dag->parent->addr, &addr->sin6_addr,
+                       sizeof(dag->parent->addr));
+                dag->parent->rank = UINT16_MAX; /* will be set below */
+                dag->parent_last_seen = ev_now(EV_DEFAULT);
+        }
+
         if (rank > dag->parent->rank)
                 return;
 
