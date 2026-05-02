@@ -1,41 +1,41 @@
 #!/usr/bin/env python3
 """
-HyMRPL — Teste de Mobilidade com Churn (20 nós)
+HyMRPL — Mobility Test with Churn (20 nodes)
 
-Simula churn real: em cada fase, um nó SAI da rede e outro nó DIFERENTE
-ENTRA na rede. Nunca é o mesmo nó saindo e voltando.
+Simulates real churn: in each phase, one node LEAVES the network and a DIFFERENT
+node JOINS the network. It's never the same node leaving and returning.
 
-Topologia (mesma do scalability_20):
+Topology (same as scalability_20):
     sensor1 (Root, S)
     ├── sensor2 (S) ── sensor6 (N) ── sensor10 (N) ── sensor14 (N) ── sensor18 (N)
     ├── sensor3 (S) ── sensor7 (N) ── sensor11 (N) ── sensor15 (N) ── sensor19 (N)
     ├── sensor4 (S) ── sensor8 (N) ── sensor12 (S) ── sensor16 (N) ── sensor20 (N)
     └── sensor5 (N) ── sensor9 (N) ── sensor13 (S) ── sensor17 (N)
 
-Cenário de churn:
-  Fase 0: Baseline — todos os 20 nós ativos, mede PDR agregado
-  Fase 1: sensor18 SAI (folha branch 1, 5-hop)
-           sensor20 já estava fora → ENTRA (folha branch 3, 5-hop)
-           Espera: sensor20 não estava na rede, agora entra
-  Fase 2: sensor7 SAI (intermediário branch 2, 2-hop — derruba sensor11,15,19)
-           sensor18 ENTRA de volta
-  Fase 3: sensor9 SAI (intermediário branch 4, 2-hop — derruba sensor13,17)
-           sensor7 ENTRA de volta (restaura branch 2)
-  Fase 4: sensor5 SAI (1-hop, derruba branch 4 inteira: sensor9,13,17)
-           sensor9 ENTRA de volta (mas sem pai, não reconecta até sensor5 voltar)
-  Fase 5: sensor5 ENTRA de volta (restaura branch 4)
-           sensor15 SAI (folha branch 2, 4-hop)
-  Fase 6: Degradação — 20% loss no sensor6 (intermediário branch 1)
-           sensor15 ENTRA de volta
-  Fase 7: Recovery — remove loss, mede PDR final
+Churn scenario:
+  Phase 0: Baseline — all 20 nodes active, measures aggregate PDR
+  Phase 1: sensor18 LEAVES (leaf branch 1, 5-hop)
+           sensor20 was already offline → JOINS (leaf branch 3, 5-hop)
+           Expected: sensor20 was not in the network, now joins
+  Phase 2: sensor7 LEAVES (intermediate branch 2, 2-hop — takes down sensor11,15,19)
+           sensor18 JOINS back
+  Phase 3: sensor9 LEAVES (intermediate branch 4, 2-hop — takes down sensor13,17)
+           sensor7 JOINS back (restores branch 2)
+  Phase 4: sensor5 LEAVES (1-hop, takes down entire branch 4: sensor9,13,17)
+           sensor9 JOINS back (but without parent, won't reconnect until sensor5 returns)
+  Phase 5: sensor5 JOINS back (restores branch 4)
+           sensor15 LEAVES (leaf branch 2, 4-hop)
+  Phase 6: Degradation — 20% loss on sensor6 (intermediate branch 1)
+           sensor15 JOINS back
+  Phase 7: Recovery — removes loss, measures final PDR
 
-Em cada fase mede:
-  - PDR agregado (root -> todos os nós ativos)
-  - Latência para nós representativos
-  - Tempo de reconvergência
-  - Nós alcançáveis
+In each phase measures:
+  - Aggregate PDR (root -> all active nodes)
+  - Latency to representative nodes
+  - Reconvergence time
+  - Reachable nodes
 
-Uso: sudo python3 hymrpl_churn_mobility.py [--runs 3] [--modes storing nonstoring hybrid]
+Usage: sudo python3 hymrpl_churn_mobility.py [--runs 3] [--modes storing nonstoring hybrid]
 """
 
 import time, re, csv, os, sys, statistics, subprocess
@@ -122,7 +122,7 @@ def create_topology():
 
 
 def start_rpld_all(sensors, mode):
-    """Inicia rpld em todos os nós, escalonado por profundidade."""
+    """Starts rpld on all nodes, staggered by depth."""
     depth = {0: 0}
     for p, c in LINKS:
         depth[c] = depth[p] + 1
@@ -135,7 +135,7 @@ def start_rpld_all(sensors, mode):
 
 
 def start_rpld_single(sensor, mode):
-    """Inicia rpld em um único nó."""
+    """Starts rpld on a single node."""
     cls = HYBRID_CLASSES.get(sensor.name, 'S') if mode == 'hybrid' else 'S'
     conf = gen_config(sensor, mode, cls)
     sensor.cmd('rpld -C {} -m stderr -d 3 > /tmp/rpld_{}.log 2>&1 &'.format(
@@ -163,7 +163,7 @@ def clean_state(sensors):
 
 
 def node_leave(sensor):
-    """Nó sai da rede: mata rpld + derruba interface."""
+    """Node leaves the network: kills rpld + brings down interface."""
     iface = get_iface_name(sensor)
     sensor.cmd('killall -9 rpld 2>/dev/null')
     sensor.cmd('ip link set {} down'.format(iface))
@@ -171,7 +171,7 @@ def node_leave(sensor):
 
 
 def node_join(sensor, mode):
-    """Nó entra na rede: sobe interface + inicia rpld."""
+    """Node joins the network: brings up interface + starts rpld."""
     iface = get_iface_name(sensor)
     sensor.cmd('ip link set {} up'.format(iface))
     sensor.cmd('ip -6 addr flush dev {} scope global 2>/dev/null'.format(iface))
@@ -207,7 +207,7 @@ def wait_for_convergence(src, dst_addr, max_attempts=120):
 
 
 def measure_aggregate_pdr(root, sensors, skip_indices=None):
-    """Mede PDR do root para todos os nós ativos. Retorna (pdr%, reachable, total)."""
+    """Measures PDR from root to all active nodes. Returns (pdr%, reachable, total)."""
     if skip_indices is None:
         skip_indices = set()
     total_tx, total_rx = 0, 0
@@ -249,39 +249,39 @@ def add_loss(sensor, pct):
 
 
 # ============================================================
-# Fases do experimento de churn
+# Churn experiment phases
 # ============================================================
-# Cada fase: (nome, descrição, nó_que_sai_idx, nó_que_entra_idx, loss_node_idx, loss_pct)
-# None = nenhuma ação nesse slot
+# Each phase: (name, description, leaving_node_idx, joining_node_idx, loss_node_idx, loss_pct)
+# None = no action in that slot
 CHURN_PHASES = [
-    # Fase 0: baseline (sem ação)
-    ("baseline", "Todos os 20 nós ativos", None, None, None, 0),
-    # Fase 1: folha sai, outra folha de branch diferente entra
-    # sensor18 (idx=17, folha branch1 5-hop) SAI
-    # sensor20 (idx=19, folha branch3 5-hop) estava DOWN desde o início → ENTRA
-    ("churn_1", "sensor18 SAI, sensor20 ENTRA", 17, 19, None, 0),
-    # Fase 2: intermediário sai (derruba sub-árvore), folha anterior volta
-    # sensor7 (idx=6, branch2 2-hop) SAI → derruba sensor11,15,19
-    # sensor18 (idx=17) ENTRA de volta
-    ("churn_2", "sensor7 SAI (derruba branch2), sensor18 ENTRA", 6, 17, None, 0),
-    # Fase 3: outro intermediário sai, anterior volta
-    # sensor9 (idx=8, branch4 2-hop) SAI → derruba sensor13,17
-    # sensor7 (idx=6) ENTRA de volta (restaura branch2)
-    ("churn_3", "sensor9 SAI (derruba branch4), sensor7 ENTRA", 8, 6, None, 0),
-    # Fase 4: nó 1-hop sai (derruba branch inteira)
-    # sensor5 (idx=4, 1-hop) SAI → derruba toda branch4
-    # sensor9 (idx=8) ENTRA (mas sem pai, não reconecta)
-    ("churn_4", "sensor5 SAI (branch4 inteira), sensor9 ENTRA (sem pai)", 4, 8, None, 0),
-    # Fase 5: restaura branch4, folha de outra branch sai
-    # sensor5 (idx=4) ENTRA de volta
-    # sensor15 (idx=14, folha branch2 4-hop) SAI
-    ("churn_5", "sensor5 ENTRA, sensor15 SAI", 14, 4, None, 0),
-    # Fase 6: degradação + restaura folha
-    # sensor15 (idx=14) ENTRA de volta
-    # 20% loss no sensor6 (idx=5, intermediário branch1)
-    ("degrade", "20% loss sensor6, sensor15 ENTRA", None, 14, 5, 20),
-    # Fase 7: recovery
-    ("recovery", "Remove loss, mede estado final", None, None, 5, 0),
+    # Phase 0: baseline (no action)
+    ("baseline", "All 20 nodes active", None, None, None, 0),
+    # Phase 1: leaf leaves, another leaf from different branch joins
+    # sensor18 (idx=17, leaf branch1 5-hop) LEAVES
+    # sensor20 (idx=19, leaf branch3 5-hop) was DOWN from the start → JOINS
+    ("churn_1", "sensor18 LEAVES, sensor20 JOINS", 17, 19, None, 0),
+    # Phase 2: intermediate leaves (takes down sub-tree), previous leaf returns
+    # sensor7 (idx=6, branch2 2-hop) LEAVES → takes down sensor11,15,19
+    # sensor18 (idx=17) JOINS back
+    ("churn_2", "sensor7 LEAVES (takes down branch2), sensor18 JOINS", 6, 17, None, 0),
+    # Phase 3: another intermediate leaves, previous one returns
+    # sensor9 (idx=8, branch4 2-hop) LEAVES → takes down sensor13,17
+    # sensor7 (idx=6) JOINS back (restores branch2)
+    ("churn_3", "sensor9 LEAVES (takes down branch4), sensor7 JOINS", 8, 6, None, 0),
+    # Phase 4: 1-hop node leaves (takes down entire branch)
+    # sensor5 (idx=4, 1-hop) LEAVES → takes down entire branch4
+    # sensor9 (idx=8) JOINS (but without parent, won't reconnect)
+    ("churn_4", "sensor5 LEAVES (entire branch4), sensor9 JOINS (no parent)", 4, 8, None, 0),
+    # Phase 5: restores branch4, leaf from another branch leaves
+    # sensor5 (idx=4) JOINS back
+    # sensor15 (idx=14, leaf branch2 4-hop) LEAVES
+    ("churn_5", "sensor5 JOINS, sensor15 LEAVES", 14, 4, None, 0),
+    # Phase 6: degradation + restores leaf
+    # sensor15 (idx=14) JOINS back
+    # 20% loss on sensor6 (idx=5, intermediate branch1)
+    ("degrade", "20% loss sensor6, sensor15 JOINS", None, 14, 5, 20),
+    # Phase 7: recovery
+    ("recovery", "Remove loss, measure final state", None, None, 5, 0),
 ]
 
 
@@ -297,11 +297,11 @@ def run_churn(sensors, mode, run_id):
     clean_state(sensors)
     time.sleep(3)
 
-    # Fase especial: sensor20 (idx=19) começa FORA da rede
+    # Special phase: sensor20 (idx=19) starts OUTSIDE the network
     node_leave(sensors[19])
     time.sleep(1)
 
-    # Inicia todos os outros
+    # Start all the others
     start_time = time.time()
     info("  Starting rpld on 19 nodes (sensor20 starts offline)...\n")
 
@@ -315,9 +315,9 @@ def run_churn(sensors, mode, run_id):
             start_rpld_single(sensors[idx], mode)
         time.sleep(4 if d == 0 else 2)
 
-    # Espera convergência inicial
+    # Wait for initial convergence
     info("  Waiting for initial convergence...\n")
-    # Usa sensor18 (idx=17) como referência (5-hop, mais distante ativo)
+    # Use sensor18 (idx=17) as reference (5-hop, farthest active node)
     ref_addr = wait_for_global_addr(sensors[17], timeout=CONVERGENCE_ADDR_TIMEOUT)
     if not ref_addr:
         info("  FAIL: sensor18 never got address\n")
@@ -331,37 +331,37 @@ def run_churn(sensors, mode, run_id):
     if conv < 0:
         return results
 
-    time.sleep(10)  # estabilização
+    time.sleep(10)  # stabilization
 
-    # Track de quais nós estão offline
-    offline = {19}  # sensor20 começa offline
+    # Track which nodes are offline
+    offline = {19}  # sensor20 starts offline
 
-    # Executa cada fase
+    # Execute each phase
     for phase_name, desc, leave_idx, join_idx, loss_idx, loss_pct in CHURN_PHASES:
         info("\n  --- {} : {} ---\n".format(phase_name.upper(), desc))
 
-        # Ação de saída
+        # Leave action
         if leave_idx is not None and leave_idx not in offline:
             node_leave(sensors[leave_idx])
             offline.add(leave_idx)
             time.sleep(3)
 
-        # Ação de entrada
+        # Join action
         if join_idx is not None and join_idx in offline:
             node_join(sensors[join_idx], mode)
             offline.discard(join_idx)
             time.sleep(5)
 
-        # Ação de degradação
+        # Degradation action
         if loss_idx is not None:
             add_loss(sensors[loss_idx], loss_pct)
             time.sleep(3)
 
-        # Espera reconvergência
+        # Wait for reconvergence
         info("    Waiting for stabilization (12s)...\n")
         time.sleep(12)
 
-        # Mede PDR agregado
+        # Measure aggregate PDR
         pdr, reachable, tested = measure_aggregate_pdr(sensors[0], sensors, skip_indices=offline)
         results["{}_pdr".format(phase_name)] = pdr
         results["{}_reachable".format(phase_name)] = reachable
@@ -370,7 +370,7 @@ def run_churn(sensors, mode, run_id):
         info("    PDR={:.1f}% reachable={}/{} offline={}\n".format(
             pdr, reachable, tested, len(offline)))
 
-        # Latência para um nó representativo (sensor14, idx=13, 4-hop se ativo)
+        # Latency to a representative node (sensor14, idx=13, 4-hop if active)
         if 13 not in offline:
             addr14 = get_global_addr(sensors[13])
             if addr14:
@@ -378,7 +378,7 @@ def run_churn(sensors, mode, run_id):
                 results["{}_lat_4hop".format(phase_name)] = lat
                 info("    Lat root->sensor14: {}ms\n".format(lat))
 
-        # Latência para nó 1-hop (sensor2, idx=1)
+        # Latency to 1-hop node (sensor2, idx=1)
         addr2 = get_global_addr(sensors[1])
         if addr2:
             lat = measure_latency(sensors[0], addr2)
@@ -443,11 +443,11 @@ def main():
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     all_results = []
 
-    # Cria topologia UMA vez e reutiliza pra todos os modos
+    # Create topology ONCE and reuse for all modes
     info("*** Creating topology (persistent for all modes)\n")
     net, sensors = create_topology()
 
-    # Espera interfaces ficarem prontas
+    # Wait for interfaces to be ready
     info("  Waiting 15s for all interfaces...\n")
     time.sleep(15)
 
@@ -467,14 +467,14 @@ def main():
                 all_results.append({"mode": mode, "run": run_id,
                                     "num_nodes": NUM_NODES, "initial_conv_s": -1})
 
-    # Salva resultados ANTES de parar a rede
+    # Save results BEFORE stopping the network
     stop_rpld_all(sensors)
     csv_path = os.path.join(RESULTS_DIR, "churn_mobility_{}.csv".format(ts))
     save_csv(all_results, csv_path)
     print_summary(all_results)
     print("\nResults: {}".format(csv_path))
 
-    # net.stop() pode matar o processo, então é a última coisa
+    # net.stop() can kill the process, so it's the last thing we do
     info("\n*** Results saved. Stopping network...\n")
     try:
         net.stop()

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-HyMRPL — Experimento com captura de pacotes e análise de protocolo.
+HyMRPL — Experiment with packet capture and protocol analysis.
 
-Roda o HyMRPL nos 3 modos, captura pacotes com tcpdump,
-e analisa os pcaps com tshark para extrair:
-  - Contagem de DIO, DAO, DAO-ACK (ICMPv6 code 0x9B)
-  - Presença de SRH (Routing Header Type 3)
-  - Valor do MOP nos DIOs
-  - Troca dinâmica de classe com evidência no pcap
+Runs HyMRPL in all 3 modes, captures packets with tcpdump,
+and analyzes the pcaps with tshark to extract:
+  - DIO, DAO, DAO-ACK count (ICMPv6 code 0x9B)
+  - Presence of SRH (Routing Header Type 3)
+  - MOP value in DIOs
+  - Dynamic class switch with evidence in pcap
 
-Requer: tcpdump, tshark (wireshark-cli)
+Requires: tcpdump, tshark (wireshark-cli)
 
-Uso: sudo python3 hymrpl_pcap_analysis.py [--runs 1]
+Usage: sudo python3 hymrpl_pcap_analysis.py [--runs 1]
 """
 
 import time, re, csv, os, subprocess, json
@@ -155,22 +155,22 @@ def wait_for_convergence(src, dst_addr, max_attempts=120):
 
 
 def start_capture(sensor, pcap_path):
-    """Inicia captura tcpdump no namespace do sensor."""
+    """Starts tcpdump capture in the sensor's namespace."""
     iface = get_iface_name(sensor)
     sensor.cmd('tcpdump -i {} -w {} -U icmp6 2>/dev/null &'.format(iface, pcap_path))
     info("  Capture started on {} -> {}\n".format(sensor.name, pcap_path))
 
 
 def stop_capture(sensor):
-    """Para captura tcpdump."""
+    """Stops tcpdump capture."""
     sensor.cmd('killall tcpdump 2>/dev/null')
     time.sleep(1)
 
 
 def analyze_pcap(pcap_path, label=""):
     """
-    Analisa pcap com tshark e extrai métricas RPL.
-    Retorna dict com contagens e evidências.
+    Analyzes pcap with tshark and extracts RPL metrics.
+    Returns dict with counts and evidence.
     """
     results = {"label": label, "pcap": pcap_path}
 
@@ -178,7 +178,7 @@ def analyze_pcap(pcap_path, label=""):
         info("  WARN: pcap not found: {}\n".format(pcap_path))
         return results
 
-    # 1. Contagem de pacotes ICMPv6 RPL por tipo
+    # 1. ICMPv6 RPL packet count by type
     # ICMPv6 type 155 (0x9B) = RPL
     # code 0x00 = DIS, 0x01 = DIO, 0x02 = DAO, 0x03 = DAO-ACK
     for code, name in [(0, 'DIS'), (1, 'DIO'), (2, 'DAO'), (3, 'DAO_ACK')]:
@@ -190,7 +190,7 @@ def analyze_pcap(pcap_path, label=""):
             count = 0
         results[name] = count
 
-    # 2. Extrair MOP dos DIOs
+    # 2. Extract MOP from DIOs
     # tshark field: icmpv6.rpl.dio.flag (contains MOP in bits 5-3)
     cmd = ('tshark -r {} -Y "icmpv6.code == 1" '
            '-T fields -e icmpv6.rpl.dio.flag 2>/dev/null').format(pcap_path)
@@ -212,7 +212,7 @@ def analyze_pcap(pcap_path, label=""):
     except subprocess.CalledProcessError:
         results['MOP_values'] = []
 
-    # 3. Contar pacotes com SRH (Routing Header Type 3 = RPL SRH)
+    # 3. Count packets with SRH (Routing Header Type 3 = RPL SRH)
     cmd = ('tshark -r {} -Y "ipv6.routing.type == 3" '
            '-T fields -e frame.number 2>/dev/null | wc -l').format(pcap_path)
     try:
@@ -220,7 +220,7 @@ def analyze_pcap(pcap_path, label=""):
     except (subprocess.CalledProcessError, ValueError):
         results['SRH_packets'] = 0
 
-    # 4. Contar pacotes ICMPv6 Echo (ping) com e sem SRH
+    # 4. Count ICMPv6 Echo (ping) packets with and without SRH
     cmd = ('tshark -r {} -Y "icmpv6.type == 128" '
            '-T fields -e frame.number 2>/dev/null | wc -l').format(pcap_path)
     try:
@@ -235,7 +235,7 @@ def analyze_pcap(pcap_path, label=""):
     except (subprocess.CalledProcessError, ValueError):
         results['echo_with_srh'] = 0
 
-    # 5. Extrair SRH segments (endereços no header)
+    # 5. Extract SRH segments (addresses in header)
     cmd = ('tshark -r {} -Y "ipv6.routing.type == 3" '
            '-T fields -e ipv6.routing.src_addr -c 5 2>/dev/null').format(pcap_path)
     try:
@@ -266,18 +266,18 @@ def analyze_pcap(pcap_path, label=""):
 
 
 def print_pcap_analysis(results):
-    """Imprime análise formatada de um pcap."""
+    """Prints formatted analysis of a pcap."""
     print("\n  --- {} ---".format(results.get('label', 'Unknown')))
-    print("  Mensagens RPL:")
+    print("  RPL Messages:")
     print("    DIS: {}  DIO: {}  DAO: {}  DAO-ACK: {}".format(
         results.get('DIS', 0), results.get('DIO', 0),
         results.get('DAO', 0), results.get('DAO_ACK', 0)))
-    print("  MOP nos DIOs: {}".format(results.get('MOP_values', [])))
-    print("  Pacotes com SRH: {}".format(results.get('SRH_packets', 0)))
-    print("  Echo requests: {} (com SRH: {})".format(
+    print("  MOP in DIOs: {}".format(results.get('MOP_values', [])))
+    print("  Packets with SRH: {}".format(results.get('SRH_packets', 0)))
+    print("  Echo requests: {} (with SRH: {})".format(
         results.get('echo_requests', 0), results.get('echo_with_srh', 0)))
     if results.get('SRH_sample'):
-        print("  SRH segments (amostra): {}".format(results['SRH_sample'][:2]))
+        print("  SRH segments (sample): {}".format(results['SRH_sample'][:2]))
     print("  Timeline:")
     for key in ['first_DIO', 'first_DAO', 'first_echo_reply']:
         val = results.get(key)
@@ -285,7 +285,7 @@ def print_pcap_analysis(results):
 
 
 def run_experiment(sensors, mode, run_id):
-    """Roda experimento com captura de pacotes."""
+    """Runs experiment with packet capture."""
     info("\n=== PCAP ANALYSIS | {} | Run {} ===\n".format(mode.upper(), run_id))
     results = {"mode": mode, "run": run_id}
 
@@ -293,7 +293,7 @@ def run_experiment(sensors, mode, run_id):
     clean_state(sensors)
     time.sleep(3)
 
-    # Iniciar capturas em todos os nós
+    # Start captures on all nodes
     pcap_files = {}
     for s in sensors:
         pcap_path = os.path.join(PCAP_DIR, "{}_{}_{}.pcap".format(mode, s.name, run_id))
@@ -301,10 +301,10 @@ def run_experiment(sensors, mode, run_id):
         start_capture(s, pcap_path)
     time.sleep(2)
 
-    # Iniciar rpld
+    # Start rpld
     start_rpld(sensors, mode)
 
-    # Esperar convergência
+    # Wait for convergence
     info("  Waiting for convergence...\n")
     addr5 = wait_for_global_addr(sensors[4])
     if not addr5:
@@ -318,21 +318,21 @@ def run_experiment(sensors, mode, run_id):
     info("  Convergence: {}s\n".format(results["convergence_s"]))
     time.sleep(5)
 
-    # Gerar tráfego de dados (pings)
+    # Generate data traffic (pings)
     info("  Generating data traffic...\n")
     sensors[0].cmd('ping6 -c 20 -i 0.3 {} > /dev/null 2>&1'.format(addr5))
     time.sleep(2)
 
-    # Captura estática igual pra todos os modos (30s total)
+    # Static capture period, same for all modes (30s total)
     info("  Static capture period (30s)...\n")
     time.sleep(30)
 
-    # Parar capturas
+    # Stop captures
     for s in sensors:
         stop_capture(s)
     time.sleep(2)
 
-    # Analisar pcaps
+    # Analyze pcaps
     info("\n  Analyzing pcaps...\n")
     all_analysis = []
     for s in sensors:
@@ -342,7 +342,7 @@ def run_experiment(sensors, mode, run_id):
         all_analysis.append(analysis)
         print_pcap_analysis(analysis)
 
-    # Consolidar métricas do root
+    # Consolidate root metrics
     root_analysis = all_analysis[0]
     results["root_DIO"] = root_analysis.get('DIO', 0)
     results["root_DAO"] = root_analysis.get('DAO', 0)
@@ -351,7 +351,7 @@ def run_experiment(sensors, mode, run_id):
     results["root_echo_with_srh"] = root_analysis.get('echo_with_srh', 0)
     results["root_echo_total"] = root_analysis.get('echo_requests', 0)
 
-    # Total de mensagens RPL na rede
+    # Total RPL messages in the network
     total_dio = sum(a.get('DIO', 0) for a in all_analysis)
     total_dao = sum(a.get('DAO', 0) for a in all_analysis)
     total_srh = sum(a.get('SRH_packets', 0) for a in all_analysis)

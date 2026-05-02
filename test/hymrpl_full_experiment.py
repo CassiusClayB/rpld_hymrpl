@@ -279,7 +279,7 @@ def run_static_extended(sensors, mode, run_id, runs_total):
     for s in sensors:
         addrs[s.name] = get_global_addr(s)
 
-    # PDR/Latência por par
+    # PDR/Latency per pair
     test_pairs = [
         (1, 2, "1hop"), (1, 3, "1hop"),
         (1, 4, "2hop"), (1, 5, "3hop"),
@@ -306,7 +306,7 @@ def run_static_extended(sensors, mode, run_id, runs_total):
         results["{}_cpu".format(s.name)] = cpu
         results["{}_mem_mb".format(s.name)] = round(mem, 2)
 
-    # DIO/DAO count no root (15s de captura)
+    # DIO/DAO count at root (15s capture)
     info("  Counting DIO/DAO messages (15s)...\n")
     dio, dao = count_dio_dao(sensors[0], duration=15)
     results["root_dio_count"] = dio
@@ -380,7 +380,7 @@ def run_mobility_experiment(sensors, mode, run_id):
 
     # --- Phase B: sensor5 moves away (+6dB) ---
     info("  --- Phase B: Attenuation +6dB ---\n")
-    # wmediumd_cli altera SNR entre nós
+    # wmediumd_cli changes SNR between nodes
     subprocess.run('wmediumd_cli set_snr sensor4 sensor5 6 2>/dev/null', shell=True)
     time.sleep(15)
 

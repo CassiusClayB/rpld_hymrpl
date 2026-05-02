@@ -47,7 +47,7 @@ FIFO_PATH = "/tmp/hymrpl_cmd"
 W_PDR = 0.4        # packet loss weight
 W_ENERGY = 0.3     # residual energy weight
 W_MOBILITY = 0.3   # stability (mobility) weight
-THRESHOLD = 0.75    # score >= threshold → Classe S
+THRESHOLD = 0.75    # score >= threshold → Class S
 
 HYBRID_CLASSES = {
     'sensor1': 'S',
@@ -289,14 +289,14 @@ def count_routes(sensor):
 
 def run_experiment(sensors, run_id):
     """
-    6 fases que exercitam os 3 critérios de decisão:
+    6 phases that exercise the 3 decision criteria:
 
-    Fase A: Tudo estável (PDR alto, bateria 90%, parent estável) → espera S
-    Fase B: Link degradado 25% loss (PDR cai, bateria 80%, estável) → espera N
-    Fase C: Link recupera, bateria baixa 20% (PDR ok, estável) → espera N
-    Fase D: Link ok, bateria recupera 70%, estável → espera S
-    Fase E: Mobilidade (parent change, PDR ok, bateria 70%) → espera N
-    Fase F: Estabiliza (PDR ok, bateria 65%, parent estável 30s) → espera S
+    Phase A: All stable (high PDR, battery 90%, stable parent) → expects S
+    Phase B: Degraded link 25% loss (PDR drops, battery 80%, stable) → expects N
+    Phase C: Link recovers, low battery 20% (PDR ok, stable) → expects N
+    Phase D: Link ok, battery recovers 70%, stable → expects S
+    Phase E: Mobility (parent change, PDR ok, battery 70%) → expects N
+    Phase F: Stabilizes (PDR ok, battery 65%, stable parent 30s) → expects S
     """
     info("\n{}\n=== ADAPTIVE SWITCH | Run {} ===\n{}\n".format("=" * 60, run_id, "=" * 60))
     results = {"run": run_id}
@@ -330,12 +330,12 @@ def run_experiment(sensors, run_id):
 
     phases = [
         # (name, description, loss_pct, energy_pct, parent_stable, do_parent_change)
-        ("A", "Estável, bateria cheia",          0,  90, True,  False),
-        ("B", "Link degradado 25% loss",        25,  80, True,  False),
-        ("C", "Link ok, bateria baixa 20%",      0,  20, True,  False),
-        ("D", "Tudo ok, bateria 70%",            0,  70, True,  False),
-        ("E", "Mobilidade (parent change)",      0,  70, False, True),
-        ("F", "Estabilizado após mobilidade",    0,  65, True,  False),
+        ("A", "Stable, full battery",               0,  90, True,  False),
+        ("B", "Degraded link 25% loss",             25,  80, True,  False),
+        ("C", "Link ok, low battery 20%",            0,  20, True,  False),
+        ("D", "All ok, battery 70%",                 0,  70, True,  False),
+        ("E", "Mobility (parent change)",            0,  70, False, True),
+        ("F", "Stabilized after mobility",           0,  65, True,  False),
     ]
 
     for phase_name, desc, loss_pct, energy_pct, parent_stable, do_parent_change in phases:
@@ -446,12 +446,12 @@ def print_summary(all_results):
         W_PDR, W_ENERGY, W_MOBILITY, THRESHOLD))
 
     phases = [
-        ("A", "Estável, bat=90%"),
+        ("A", "Stable, bat=90%"),
         ("B", "25% loss, bat=80%"),
         ("C", "Link ok, bat=20%"),
-        ("D", "Tudo ok, bat=70%"),
+        ("D", "All ok, bat=70%"),
         ("E", "Parent change, bat=70%"),
-        ("F", "Estabilizado, bat=65%"),
+        ("F", "Stabilized, bat=65%"),
     ]
 
     print("\n{:<6} {:<24} {:>6} {:>7} {:>10} {:>10} {:>10} {:>5}".format(

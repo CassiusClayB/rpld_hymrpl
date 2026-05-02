@@ -34,7 +34,7 @@ NUM_NODES = 15
 CONVERGENCE_ADDR_TIMEOUT = 150
 CONVERGENCE_PING_TIMEOUT = 240
 
-# Topologia: (parent_idx, child_idx) — indices 0-based
+# Topology: (parent_idx, child_idx) — indices 0-based
 # Branch 1: 0-1-4-7-10-13
 # Branch 2: 0-2-5-8-11-14
 # Branch 3: 0-3-6-9-12

@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """
-HyMRPL — Experimento de mobilidade v2
+HyMRPL — Mobility experiment v2
 
-Usa ip link down/up e tc netem para simular mobilidade real:
-  - Degradação progressiva de enlace (packet loss via tc netem)
-  - Handover via desativação/ativação de interfaces
-  - Saída e reentrada na rede
-  - Perda aleatória de pacotes para cenário realista
+Uses ip link down/up and tc netem to simulate real mobility:
+  - Progressive link degradation (packet loss via tc netem)
+  - Handover via interface deactivation/activation
+  - Network departure and re-entry
+  - Random packet loss for realistic scenario
 
-Fases:
-  A: Baseline — sensor5 conectado a sensor4, sem perda
-  B: Degradação — 10% packet loss no enlace sensor4-sensor5
-  C: Handover — link sensor4-sensor5 down, sensor5 reconecta via sensor3
-  D: Estabilização — sensor5 conectado a sensor3, sem perda
-  E: Saída — link down total, sensor5 fora da rede
-  F: Reentrada — link up, sensor5 volta à rede
+Phases:
+  A: Baseline — sensor5 connected to sensor4, no loss
+  B: Degradation — 10% packet loss on sensor4-sensor5 link
+  C: Handover — link sensor4-sensor5 down, sensor5 reconnects via sensor3
+  D: Stabilization — sensor5 connected to sensor3, no loss
+  E: Departure — total link down, sensor5 out of network
+  F: Re-entry — link up, sensor5 returns to network
 
-Topologia criada UMA vez, reutilizada pra todos os modos.
-Uso: sudo python3 hymrpl_mobility_v2.py [--runs 3] [--modes storing nonstoring hybrid]
+Topology created ONCE, reused for all modes.
+Usage: sudo python3 hymrpl_mobility_v2.py [--runs 3] [--modes storing nonstoring hybrid]
 """
 
 import time, re, csv, os, sys, statistics

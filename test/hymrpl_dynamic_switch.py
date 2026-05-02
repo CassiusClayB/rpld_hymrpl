@@ -194,10 +194,10 @@ def count_routes(sensor):
 
 def run_experiment(sensors, run_id):
     """
-    Fases:
-      A: sensor5 como Classe N (estado inicial)
-      B: troca sensor5 pra Classe S via FIFO
-      C: volta sensor5 pra Classe N via FIFO
+    Phases:
+      A: sensor5 as Class N (initial state)
+      B: switch sensor5 to Class S via FIFO
+      C: switch sensor5 back to Class N via FIFO
     """
     info("\n=== DYNAMIC SWITCH | Run {} ===\n".format(run_id))
     results = {"run": run_id}
