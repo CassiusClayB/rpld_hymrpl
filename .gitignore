@@ -8,3 +8,16 @@ backup_original/
 # Python cache
 __pycache__/
 *.pyc
+
+# Old CSV results (not part of the project)
+test/*.csv
+
+# Analysis/utility scripts (not experiment scripts)
+test/analyze_*.py
+test/calc_stats.py
+test/debug_restore.py
+test/diag_iface.py
+test/diag_iface20.py
+test/hymrpl_gen_latex.py
+test/hymrpl_collect_metrics.py
+test/hymrpl_mobility.py
