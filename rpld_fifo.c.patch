@@ -1,13 +1,13 @@
---- Modificações no rpld.c para leitura do FIFO de troca de perfil ---
+--- Modifications to rpld.c for FIFO-based profile switching ---
 
-Adicionar no topo do rpld.c (após os includes existentes):
+Add at the top of rpld.c (after existing includes):
 
     #include <fcntl.h>
     #include <sys/stat.h>
 
     #define HYMRPL_FIFO_PATH "/tmp/hymrpl_cmd"
 
-Adicionar esta função antes do main() ou do loop principal:
+Add this function before main() or the main loop:
 
     /*
      * HyMRPL: check FIFO for profile change commands.
@@ -59,11 +59,11 @@ Adicionar esta função antes do main() ou do loop principal:
             }
     }
 
-No main loop (dentro do callback do timer ou do ev_loop), adicionar chamada:
+In the main loop (inside the timer callback or ev_loop), add the call:
 
     hymrpl_check_fifo(&ifaces);
 
-Também criar o FIFO na inicialização (no main, antes do loop):
+Also create the FIFO at initialization (in main, before the loop):
 
     /* HyMRPL: create FIFO for runtime profile changes */
     unlink(HYMRPL_FIFO_PATH);

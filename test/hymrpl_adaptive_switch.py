@@ -1,35 +1,35 @@
 #!/usr/bin/env python3
 """
-HyMRPL — Experimento de troca adaptativa de classe.
+HyMRPL — Adaptive class switch experiment.
 
-Decisão automática baseada em 3 critérios:
-  1. Perda de pacotes (PDR): se PDR < 80% → favorece N
-  2. Energia residual: se bateria < 30% → favorece N (menos overhead)
-  3. Mobilidade (estabilidade do parent): se parent mudou recentemente → favorece N
+Automatic decision based on 3 criteria:
+  1. Packet loss (PDR): if PDR < 80% → favors N
+  2. Residual energy: if battery < 30% → favors N (less overhead)
+  3. Mobility (parent stability): if parent changed recently → favors N
 
-Lógica de decisão:
+Decision logic:
   score = w_pdr * score_pdr + w_energy * score_energy + w_mobility * score_mobility
-  Se score >= THRESHOLD → Classe S (nó estável, com recursos)
-  Se score <  THRESHOLD → Classe N (nó instável, restrito)
+  If score >= THRESHOLD → Class S (stable node, with resources)
+  If score <  THRESHOLD → Class N (unstable node, constrained)
 
-Cenários simulados:
-  Fase A: sensor5 estável, bateria cheia, sem perda → deve ser S
-  Fase B: degradação no link (20% loss) → PDR cai → deve trocar pra N
-  Fase C: link recupera, mas bateria baixa (simulada) → continua N
-  Fase D: link bom + bateria ok + estável → volta pra S
-  Fase E: mobilidade (parent change simulado) → troca pra N
-  Fase F: estabiliza no novo parent → volta pra S
+Simulated scenarios:
+  Phase A: sensor5 stable, full battery, no loss → should be S
+  Phase B: link degradation (20% loss) → PDR drops → should switch to N
+  Phase C: link recovers, but low battery (simulated) → stays N
+  Phase D: good link + ok battery + stable → switches back to S
+  Phase E: mobility (simulated parent change) → switches to N
+  Phase F: stabilizes on new parent → switches back to S
 
-Topologia:
+Topology:
     sensor1 (Root, S)
        /        \\
   sensor2(N)   sensor3(S)
                   |
                sensor4(S)
                   |
-               sensor5(adaptativo)
+               sensor5(adaptive)
 
-Uso: sudo python3 hymrpl_adaptive_switch.py [--runs 3]
+Usage: sudo python3 hymrpl_adaptive_switch.py [--runs 3]
 """
 
 import time, re, csv, os, statistics, random
@@ -44,9 +44,9 @@ RESULTS_DIR = "/tmp/hymrpl_results"
 FIFO_PATH = "/tmp/hymrpl_cmd"
 
 # --- Adaptive decision parameters ---
-W_PDR = 0.4        # peso da perda de pacotes
-W_ENERGY = 0.3     # peso da energia residual
-W_MOBILITY = 0.3   # peso da estabilidade (mobilidade)
+W_PDR = 0.4        # packet loss weight
+W_ENERGY = 0.3     # residual energy weight
+W_MOBILITY = 0.3   # stability (mobility) weight
 THRESHOLD = 0.75    # score >= threshold → Classe S
 
 HYBRID_CLASSES = {
@@ -60,8 +60,8 @@ HYBRID_CLASSES = {
 
 class AdaptiveClassManager:
     """
-    Gerenciador adaptativo de classe para um nó.
-    Combina 3 métricas pra decidir se o nó deve ser S ou N.
+    Adaptive class manager for a node.
+    Combines 3 metrics to decide if the node should be S or N.
     """
 
     def __init__(self, node_name, w_pdr=W_PDR, w_energy=W_ENERGY,
@@ -76,20 +76,20 @@ class AdaptiveClassManager:
 
     def compute_score(self, pdr, energy_pct, parent_stable):
         """
-        Calcula score composto:
-          pdr: 0-100 (porcentagem de entrega)
-          energy_pct: 0-100 (porcentagem de bateria restante)
-          parent_stable: True/False (parent não mudou nos últimos N segundos)
+        Computes composite score:
+          pdr: 0-100 (delivery percentage)
+          energy_pct: 0-100 (remaining battery percentage)
+          parent_stable: True/False (parent hasn't changed in the last N seconds)
 
-        Retorna score 0.0-1.0 e a classe recomendada.
+        Returns score 0.0-1.0 and the recommended class.
         """
-        # Normaliza PDR: 100% → 1.0, 0% → 0.0
+        # Normalize PDR: 100% → 1.0, 0% → 0.0
         score_pdr = min(pdr / 100.0, 1.0)
 
-        # Normaliza energia: 100% → 1.0, 0% → 0.0
+        # Normalize energy: 100% → 1.0, 0% → 0.0
         score_energy = min(energy_pct / 100.0, 1.0)
 
-        # Mobilidade: estável → 1.0, instável → 0.0
+        # Mobility: stable → 1.0, unstable → 0.0
         score_mobility = 1.0 if parent_stable else 0.0
 
         score = (self.w_pdr * score_pdr +
@@ -262,7 +262,7 @@ def send_fifo_cmd(sensor, cmd_str):
 
 
 def simulate_parent_change(sensor):
-    """Simula mudança de parent: derruba e sobe o link."""
+    """Simulates parent change: brings down and up the link."""
     iface = get_iface_name(sensor)
     info("  Simulating parent change on {}...\n".format(sensor.name))
     sensor.cmd('ip link set {} down'.format(iface))
@@ -272,7 +272,7 @@ def simulate_parent_change(sensor):
 
 
 def apply_loss(sensor, loss_pct):
-    """Aplica perda de pacotes no link do sensor."""
+    """Applies packet loss on the sensor's link."""
     iface = get_iface_name(sensor)
     sensor.cmd('tc qdisc del dev {} root 2>/dev/null'.format(iface))
     if loss_pct > 0:

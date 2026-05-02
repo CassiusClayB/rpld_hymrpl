@@ -2,10 +2,10 @@
 """
 HyMRPL Benchmark — Storing vs Non-Storing vs Hybrid (MOP=6)
 
-Roda cada modo em sequência, mantendo a topologia viva durante as N runs
-de cada modo. Só recria a topologia ao trocar de modo.
+Runs each mode in sequence, keeping the topology alive during the N runs
+of each mode. Only recreates the topology when switching modes.
 
-Uso: sudo python3 hymrpl_benchmark.py [--runs 5] [--modes storing nonstoring hybrid]
+Usage: sudo python3 hymrpl_benchmark.py [--runs 5] [--modes storing nonstoring hybrid]
 """
 
 import time, re, csv, os, sys, statistics, subprocess
@@ -19,9 +19,9 @@ DODAGID = PREFIX + "::1"
 RESULTS_DIR = "/tmp/hymrpl_results"
 PING_COUNT = 50
 
-# Timeout mais generoso pra convergência (especialmente hybrid)
-CONVERGENCE_ADDR_TIMEOUT = 90   # segundos esperando endereço global
-CONVERGENCE_PING_TIMEOUT = 180  # tentativas de ping (x 0.5s = 90s)
+# More generous timeout for convergence (especially hybrid)
+CONVERGENCE_ADDR_TIMEOUT = 90   # seconds waiting for global address
+CONVERGENCE_PING_TIMEOUT = 180  # ping attempts (x 0.5s = 90s)
 
 TEST_PAIRS = [
     (1, 2, "1-hop"), (1, 3, "1-hop"),
@@ -88,14 +88,14 @@ def start_rpld(sensors, mode):
     cls = HYBRID_CLASSES.get(root.name, 'S') if mode == 'hybrid' else 'S'
     conf = gen_config(root, mode, cls)
     root.cmd('nohup rpld -C {} -m stderr -d 3 > /tmp/rpld_{}.log 2>&1 &'.format(conf, root.name))
-    time.sleep(3)  # root precisa estar estável antes dos filhos
+    time.sleep(3)  # root needs to be stable before children
 
     # Start 1-hop nodes (sensor2, sensor3)
     for s in [sensors[1], sensors[2]]:
         cls = HYBRID_CLASSES.get(s.name, 'S') if mode == 'hybrid' else 'S'
         conf = gen_config(s, mode, cls)
         s.cmd('nohup rpld -C {} -m stderr -d 3 > /tmp/rpld_{}.log 2>&1 &'.format(conf, s.name))
-    time.sleep(2)  # espera 1-hop nodes processarem DIO
+    time.sleep(2)  # wait for 1-hop nodes to process DIO
 
     # Start 2-hop node (sensor4)
     s = sensors[3]
@@ -123,7 +123,7 @@ def flush_routes(sensors):
         # Flush all IPv6 routes except link-local and kernel routes
         s.cmd('ip -6 route flush proto static 2>/dev/null')
         s.cmd('ip -6 route flush proto boot 2>/dev/null')
-        s.cmd('ip -6 route flush proto 99 2>/dev/null')  # rpld pode usar proto customizado
+        s.cmd('ip -6 route flush proto 99 2>/dev/null')  # rpld may use custom proto
 
 
 def get_global_addr(sensor):
@@ -376,22 +376,22 @@ def gen_latex(all_results, path):
 
     n = max(len(v) for v in modes.values()) if modes else 0
     tex = "\\begin{table}[H]\n\\centering\\footnotesize\n"
-    tex += "\\caption{Comparativo Storing, Non-Storing e HyMRPL -- " + str(n) + " execuções}\n"
+    tex += "\\caption{Comparison of Storing, Non-Storing and HyMRPL -- " + str(n) + " runs}\n"
     tex += "\\label{tab:comparativo_hymrpl}\n"
     tex += "\\begin{tabular}{lccc}\n\\hline\n"
-    tex += "\\textbf{Métrica} & \\textbf{Storing} & \\textbf{Non-Storing} & \\textbf{HyMRPL} \\\\\n\\hline\n"
+    tex += "\\textbf{Metric} & \\textbf{Storing} & \\textbf{Non-Storing} & \\textbf{HyMRPL} \\\\\n\\hline\n"
 
     metrics = [
-        ("Convergência (s)", "convergence_s"),
+        ("Convergence (s)", "convergence_s"),
         ("PDR 1-hop (\\%)", "1to2_pdr"),
         ("PDR 2-hop (\\%)", "1to4_pdr"),
         ("PDR 3-hop (\\%)", "1to5_pdr"),
-        ("Latência 1-hop (ms)", "1to2_lat_avg"),
-        ("Latência 2-hop (ms)", "1to4_lat_avg"),
-        ("Latência 3-hop (ms)", "1to5_lat_avg"),
+        ("Latency 1-hop (ms)", "1to2_lat_avg"),
+        ("Latency 2-hop (ms)", "1to4_lat_avg"),
+        ("Latency 3-hop (ms)", "1to5_lat_avg"),
         ("Lat. p95 3-hop (ms)", "1to5_lat_p95"),
-        ("Rotas SRH", "routes_srh"),
-        ("Rotas via", "routes_via"),
+        ("Routes SRH", "routes_srh"),
+        ("Routes via", "routes_via"),
     ]
     for label, key in metrics:
         row = label
@@ -475,7 +475,7 @@ def main():
             info("WARNING: net.stop() raised: {}\n".format(e))
         time.sleep(3)
 
-        # Cleanup manual — garante que tudo morreu
+        # Cleanup — ensures everything is killed
         subprocess.run('killall -9 rpld 2>/dev/null', shell=True)
         subprocess.run('mn -c 2>/dev/null', shell=True, capture_output=True)
         time.sleep(3)

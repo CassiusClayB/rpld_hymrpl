@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """
-HyMRPL — Teste de Escalabilidade com 15 nós
+HyMRPL — Scalability Test with 15 nodes
 
-Topologia em árvore com 3 branches, profundidade máxima de 4 hops:
+Tree topology with 3 branches, maximum depth of 4 hops:
 
     sensor1 (Root, S)
     ├── sensor2 (S) ── sensor5 (N) ── sensor8 (N)  ── sensor11 (N) ── sensor14 (N)
     ├── sensor3 (S) ── sensor6 (N) ── sensor9 (N)  ── sensor12 (N) ── sensor15 (N)
     └── sensor4 (N) ── sensor7 (N) ── sensor10 (S) ── sensor13 (N)
 
-Métricas coletadas:
-  - Tempo de convergência (até o nó mais distante responder)
-  - PDR e latência para nós a 1, 2, 3, 4 e 5 hops
-  - CPU e memória do root
-  - Contagem de rotas SRH e hop-by-hop
-  - Mensagens DIO capturadas no root (15s)
+Collected metrics:
+  - Convergence time (until the farthest node responds)
+  - PDR and latency for nodes at 1, 2, 3, 4 and 5 hops
+  - Root CPU and memory
+  - SRH and hop-by-hop route count
+  - DIO messages captured at root (15s)
 
-Uso: sudo python3 hymrpl_scalability_15.py [--runs 3] [--modes storing nonstoring hybrid]
+Usage: sudo python3 hymrpl_scalability_15.py [--runs 3] [--modes storing nonstoring hybrid]
 """
 
 import time, re, csv, os, sys, statistics, subprocess
@@ -52,9 +52,9 @@ for i in range(NUM_NODES):
     if i == 0:
         HYBRID_CLASSES[name] = 'S'  # root
     elif i in (1, 2, 9):
-        HYBRID_CLASSES[name] = 'S'  # intermediários com recursos
+        HYBRID_CLASSES[name] = 'S'  # intermediate nodes with resources
     else:
-        HYBRID_CLASSES[name] = 'N'  # folhas ou restritos
+        HYBRID_CLASSES[name] = 'N'  # leaf or constrained nodes
 
 TEST_PAIRS = [
     (0, 1, "1-hop"),     # root -> sensor2
@@ -272,7 +272,7 @@ def run_single(sensors, mode, run_id, runs_total):
     start_time = time.time()
     start_rpld(sensors, mode)
 
-    # Espera o nó mais distante (sensor14, idx=13) obter endereço
+    # Wait for the farthest node (sensor14, idx=13) to get an address
     info("  Waiting for farthest node (sensor14) global address...\n")
     farthest_addr = wait_for_global_addr(sensors[13])
     if not farthest_addr:

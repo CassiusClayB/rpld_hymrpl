@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-HyMRPL — Experimento de troca dinâmica de classe via FIFO.
+HyMRPL — Dynamic class switch experiment via FIFO.
 
-Demonstra que o HyMRPL adapta o encaminhamento em runtime:
-  1. sensor5 inicia como Classe N (non-storing-like)
-  2. Mede latência root→sensor5 e local sensor4→sensor5
-  3. Envia "CLASS_S" pro FIFO do sensor5
-  4. Aguarda reconvergência
-  5. Mede latência de novo (deve mudar o comportamento)
-  6. Volta pra CLASS_N e mede novamente
+Demonstrates that HyMRPL adapts forwarding at runtime:
+  1. sensor5 starts as Class N (non-storing-like)
+  2. Measures latency root→sensor5 and local sensor4→sensor5
+  3. Sends "CLASS_S" to sensor5's FIFO
+  4. Waits for reconvergence
+  5. Measures latency again (behavior should change)
+  6. Switches back to CLASS_N and measures again
 
-Topologia:
+Topology:
     sensor1 (Root, S)
        /        \
   sensor2(N)   sensor3(S)
@@ -19,7 +19,7 @@ Topologia:
                   |
                sensor5(N → S → N)
 
-Uso: sudo python3 hymrpl_dynamic_switch.py [--runs 3]
+Usage: sudo python3 hymrpl_dynamic_switch.py [--runs 3]
 """
 
 import time, re, csv, os, statistics
@@ -182,7 +182,7 @@ def measure_pdr_latency(src, dst_addr, count=30):
 
 
 def send_fifo_cmd(sensor, cmd_str):
-    """Envia comando pro FIFO do rpld rodando no namespace do sensor."""
+    """Sends command to the rpld FIFO running in the sensor's namespace."""
     sensor.cmd('echo "{}" > {} 2>/dev/null'.format(cmd_str, FIFO_PATH))
     info("  FIFO: sent '{}' to {}\n".format(cmd_str, sensor.name))
 
@@ -229,9 +229,9 @@ def run_experiment(sensors, run_id):
     time.sleep(10)
 
     # ============================================================
-    # PHASE A: sensor5 = Classe N (initial state)
+    # PHASE A: sensor5 = Class N (initial state)
     # ============================================================
-    info("\n  --- PHASE A: sensor5 = Classe N (initial) ---\n")
+    info("\n  --- PHASE A: sensor5 = Class N (initial) ---\n")
 
     # root → sensor5
     m = measure_pdr_latency(sensors[0], addr5, count=50)
@@ -266,7 +266,7 @@ def run_experiment(sensors, run_id):
     info("    Routes: s4 via={} | s5 via={} srh={}\n".format(r4["via"], r5["via"], r5["srh"]))
 
     # ============================================================
-    # PHASE B: Switch sensor5 to Classe S
+    # PHASE B: Switch sensor5 to Class S
     # ============================================================
     info("\n  --- PHASE B: Switching sensor5 N → S ---\n")
     send_fifo_cmd(sensors[4], "CLASS_S")
@@ -310,7 +310,7 @@ def run_experiment(sensors, run_id):
     info("    Routes: s4 via={} | s5 via={} srh={}\n".format(r4["via"], r5["via"], r5["srh"]))
 
     # ============================================================
-    # PHASE C: Switch sensor5 back to Classe N
+    # PHASE C: Switch sensor5 back to Class N
     # ============================================================
     info("\n  --- PHASE C: Switching sensor5 S → N ---\n")
     send_fifo_cmd(sensors[4], "CLASS_N")

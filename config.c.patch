@@ -1,10 +1,10 @@
---- Modificações no config.c para HyMRPL ---
+--- Modifications to config.c for HyMRPL ---
 
-Apenas dois trechos precisam ser adicionados no config.c original.
+Only two sections need to be added to the original config.c.
 
-=== ALTERAÇÃO 1: na função config_load_dags(), após o bloco que lê mode_of_operation, adicionar: ===
+=== CHANGE 1: in config_load_dags(), after the block that reads mode_of_operation, add: ===
 
-Após:
+After:
                 lua_getfield(L, -1, "mode_of_operation");
                 if (lua_isnumber(L, -1)) {
                         mop = lua_tonumber(L, -1);
@@ -13,7 +13,7 @@ Após:
                 }
                 lua_pop(L, 1);
 
-Adicionar:
+Add:
                 /* HyMRPL: read node_class from dag config */
                 uint8_t dag_node_class = HYMRPL_CLASS_S;
                 lua_getfield(L, -1, "node_class");
@@ -24,19 +24,19 @@ Adicionar:
                 }
                 lua_pop(L, 1);
 
-E após "dag = dag_create(...);" adicionar:
+And after "dag = dag_create(...);" add:
                 if (dag) {
                         dag->node_class = dag_node_class;
                 }
 
-=== ALTERAÇÃO 2: na função config_load(), após o bloco que lê mode_of_operation da iface, adicionar: ===
+=== CHANGE 2: in config_load(), after the block that reads mode_of_operation from iface, add: ===
 
-Após:
+After:
                 lua_getfield(L, -1, "mode_of_operation");
                 iface->mop = lua_tonumber(L, -1);
                 lua_pop(L, 1);
 
-Adicionar:
+Add:
                 /* HyMRPL: read node_class from iface config */
                 lua_getfield(L, -1, "node_class");
                 if (lua_isstring(L, -1)) {

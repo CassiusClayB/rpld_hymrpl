@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-HyMRPL — Monitor de adaptação dinâmica de perfil (Classe S / Classe N)
+HyMRPL — Adaptive profile monitoring daemon (Class S / Class N)
 
-Coleta métricas locais do nó e decide o perfil funcional:
-  - Classe S (storing): nó estável, com recursos disponíveis
-  - Classe N (non-storing): nó sobrecarregado, com pouca bateria ou móvel
+Collects local node metrics and decides the functional profile:
+  - Class S (storing): stable node with available resources
+  - Class N (non-storing): overloaded node, low battery, or mobile
 
-Métricas usadas:
+Metrics used:
   - CPU usage (%)
-  - Memória disponível (MB)
-  - Bateria simulada (%)
-  - Índice de mobilidade (via RSSI variance, se disponível)
+  - Available memory (MB)
+  - Simulated battery (%)
+  - Mobility index (via RSSI variance, if available)
 
-A decisão é escrita no FIFO /tmp/hymrpl_cmd que o rpld pode ler
-para alternar o perfil em runtime.
+The decision is written to the FIFO /tmp/hymrpl_cmd, which rpld reads
+to switch the profile at runtime.
 
-Uso: sudo python3 hymrpl_monitor.py [--interval 5] [--battery-file /tmp/battery]
+Usage: sudo python3 hymrpl_monitor.py [--interval 5] [--battery-file /tmp/battery]
 """
 
 import os
@@ -23,20 +23,20 @@ import sys
 import time
 import argparse
 
-# --- Limiares de decisão ---
-CPU_THRESHOLD_HIGH = 70.0      # acima disso -> Classe N
-CPU_THRESHOLD_LOW = 40.0       # abaixo disso -> Classe S
-MEM_THRESHOLD_LOW = 20.0       # MB livres; abaixo -> Classe N
-BATTERY_THRESHOLD_LOW = 20.0   # % bateria; abaixo -> Classe N
-BATTERY_THRESHOLD_HIGH = 50.0  # acima disso -> pode ser Classe S
-HYSTERESIS_CYCLES = 3          # ciclos consecutivos antes de trocar
+# --- Decision thresholds ---
+CPU_THRESHOLD_HIGH = 70.0      # above this -> Class N
+CPU_THRESHOLD_LOW = 40.0       # below this -> Class S
+MEM_THRESHOLD_LOW = 20.0       # free MB; below -> Class N
+BATTERY_THRESHOLD_LOW = 20.0   # battery %; below -> Class N
+BATTERY_THRESHOLD_HIGH = 50.0  # above this -> can be Class S
+HYSTERESIS_CYCLES = 3          # consecutive cycles before switching
 
 FIFO_PATH = "/tmp/hymrpl_cmd"
 LOG_PATH = "/tmp/hymrpl_monitor.log"
 
 
 def get_cpu_usage():
-    """Retorna uso de CPU (%) via /proc/stat"""
+    """Returns CPU usage (%) via /proc/stat"""
     with open('/proc/stat', 'r') as f:
         line = f.readline()
     parts = line.split()
@@ -46,7 +46,7 @@ def get_cpu_usage():
 
 
 def get_mem_available_mb():
-    """Retorna memória disponível em MB"""
+    """Returns available memory in MB"""
     with open('/proc/meminfo', 'r') as f:
         for line in f:
             if line.startswith('MemAvailable:'):
@@ -56,9 +56,9 @@ def get_mem_available_mb():
 
 def get_battery(battery_file):
     """
-    Lê nível de bateria simulado de um arquivo.
-    Em ambiente real, leria de /sys/class/power_supply/.
-    Retorna 100.0 se o arquivo não existir.
+    Reads simulated battery level from a file.
+    In a real environment, would read from /sys/class/power_supply/.
+    Returns 100.0 if the file does not exist.
     """
     if battery_file and os.path.exists(battery_file):
         with open(battery_file, 'r') as f:
@@ -70,7 +70,7 @@ def get_battery(battery_file):
 
 
 def write_fifo(profile):
-    """Escreve comando de troca de perfil no FIFO"""
+    """Writes profile switch command to the FIFO"""
     try:
         if not os.path.exists(FIFO_PATH):
             os.mkfifo(FIFO_PATH)
@@ -78,11 +78,11 @@ def write_fifo(profile):
         os.write(fd, f"CLASS_{profile}\n".encode())
         os.close(fd)
     except (OSError, BrokenPipeError):
-        pass  # rpld não está lendo o FIFO agora, tudo bem
+        pass  # rpld is not reading the FIFO right now, that's fine
 
 
 def log_event(timestamp, cpu, mem, battery, current, decision, reason):
-    """Registra evento no log"""
+    """Logs event to file"""
     with open(LOG_PATH, 'a') as f:
         f.write(f"{timestamp},{cpu:.1f},{mem:.1f},{battery:.1f},"
                 f"{current},{decision},{reason}\n")
@@ -90,13 +90,13 @@ def log_event(timestamp, cpu, mem, battery, current, decision, reason):
 
 def decide_profile(cpu_pct, mem_mb, battery_pct, current_class, counter):
     """
-    Decide o perfil funcional baseado nas métricas.
-    Retorna (nova_classe, novo_counter, razão)
+    Decides the functional profile based on metrics.
+    Returns (new_class, new_counter, reason)
 
-    Lógica:
-    - Se CPU alta OU memória baixa OU bateria baixa -> sugere Classe N
-    - Se CPU baixa E memória ok E bateria ok -> sugere Classe S
-    - Histerese: só troca após HYSTERESIS_CYCLES consecutivos
+    Logic:
+    - If CPU high OR memory low OR battery low -> suggest Class N
+    - If CPU low AND memory ok AND battery ok -> suggest Class S
+    - Hysteresis: only switches after HYSTERESIS_CYCLES consecutive cycles
     """
     suggest_n = False
     reason = "stable"
@@ -118,7 +118,7 @@ def decide_profile(cpu_pct, mem_mb, battery_pct, current_class, counter):
         return "S", counter, f"pending_N({counter}/{HYSTERESIS_CYCLES})"
 
     if not suggest_n and current_class == "N":
-        # Só volta pra S se tudo estiver confortável
+        # Only switch back to S if everything is comfortable
         if (cpu_pct < CPU_THRESHOLD_LOW and
             mem_mb > MEM_THRESHOLD_LOW * 2 and
             battery_pct > BATTERY_THRESHOLD_HIGH):
@@ -127,7 +127,7 @@ def decide_profile(cpu_pct, mem_mb, battery_pct, current_class, counter):
                 return "S", 0, "resources_recovered"
             return "N", counter, f"pending_S({counter}/{HYSTERESIS_CYCLES})"
 
-    # Sem mudança
+    # No change
     return current_class, 0 if not suggest_n else counter, reason
 
 
@@ -145,7 +145,7 @@ def main():
     current_class = args.initial_class
     counter = 0
 
-    # Inicializar log
+    # Initialize log
     with open(LOG_PATH, 'w') as f:
         f.write("timestamp,cpu_pct,mem_mb,battery_pct,current,decision,reason\n")
 
@@ -153,12 +153,12 @@ def main():
           f"initial_class={current_class})")
     print(f"FIFO: {FIFO_PATH} | Log: {LOG_PATH}")
 
-    # Primeira leitura de CPU (precisa de delta)
+    # First CPU reading (needs delta)
     prev_idle, prev_total = get_cpu_usage()
     time.sleep(1)
 
     while True:
-        # Coletar métricas
+        # Collect metrics
         idle, total = get_cpu_usage()
         d_idle = idle - prev_idle
         d_total = total - prev_total
@@ -168,7 +168,7 @@ def main():
         mem_mb = get_mem_available_mb()
         battery_pct = get_battery(args.battery_file)
 
-        # Decidir
+        # Decide
         new_class, counter, reason = decide_profile(
             cpu_pct, mem_mb, battery_pct, current_class, counter)
 

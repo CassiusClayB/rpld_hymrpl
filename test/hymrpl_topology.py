@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-HyMRPL — Topologia de teste com Mininet-WiFi + 6LoWPAN
-4 nós estáticos + 1 nó móvel (sensor5)
+HyMRPL — Test topology with Mininet-WiFi + 6LoWPAN
+4 static nodes + 1 mobile node (sensor5)
 
-Topologia:
-    sensor1 (Root, Classe S)
+Topology:
+    sensor1 (Root, Class S)
        |         \
     sensor2(N)   sensor3(S)
                     |
                  sensor4(N)
                     |
-                 sensor5(móvel, N)
+                 sensor5(mobile, N)
 
-Uso: sudo python3 hymrpl_topology.py
+Usage: sudo python3 hymrpl_topology.py
 """
 
 import sys
@@ -88,7 +88,7 @@ def topology():
     info("*** Configuring HyMRPL (MOP=6)\n")
     # Node class assignments: S=storing-like, N=non-storing-like
     node_classes = {
-        sensor1: 'S',  # Root, always Classe S
+        sensor1: 'S',  # Root, always Class S
         sensor2: 'N',
         sensor3: 'S',
         sensor4: 'N',

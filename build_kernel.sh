@@ -1,7 +1,7 @@
 #!/bin/bash
-# HyMRPL — Script para compilar kernel 6.11 com RPL SRH habilitado
-# Rodar na máquina host (não na VM)
-# Uso: bash build_kernel.sh
+# HyMRPL — Script to compile kernel 6.11 with RPL SRH enabled
+# Run on the host machine (not on the VM)
+# Usage: bash build_kernel.sh
 
 set -e
 
@@ -14,38 +14,38 @@ echo "Kernel: ${KERNEL_VERSION}"
 echo "Build dir: ${BUILD_DIR}"
 echo ""
 
-# 1. Instalar dependências
-echo "[1/7] Instalando dependências..."
+# 1. Install dependencies
+echo "[1/7] Installing dependencies..."
 sudo apt update
 sudo apt install -y build-essential libncurses-dev bison flex libssl-dev \
     libelf-dev bc dwarves wget
 
-# 2. Baixar kernel
+# 2. Download kernel
 if [ ! -f "$HOME/linux-${KERNEL_VERSION}.tar.xz" ]; then
-    echo "[2/7] Baixando kernel ${KERNEL_VERSION}..."
+    echo "[2/7] Downloading kernel ${KERNEL_VERSION}..."
     wget -P "$HOME" "${KERNEL_URL}"
 else
-    echo "[2/7] Kernel já baixado, pulando..."
+    echo "[2/7] Kernel already downloaded, skipping..."
 fi
 
-# 3. Extrair
+# 3. Extract
 if [ ! -d "${BUILD_DIR}" ]; then
-    echo "[3/7] Extraindo..."
+    echo "[3/7] Extracting..."
     tar xf "$HOME/linux-${KERNEL_VERSION}.tar.xz" -C "$HOME"
 else
-    echo "[3/7] Já extraído, pulando..."
+    echo "[3/7] Already extracted, skipping..."
 fi
 
 cd "${BUILD_DIR}"
 
-# 4. Configurar
-echo "[4/7] Configurando kernel..."
+# 4. Configure
+echo "[4/7] Configuring kernel..."
 cp /boot/config-$(uname -r) .config
 
-# Habilitar RPL SRH (o módulo principal que precisamos)
+# Enable RPL SRH (the main module we need)
 scripts/config --enable CONFIG_IPV6_RPL_LWTUNNEL
 
-# Garantir 6LoWPAN e IEEE 802.15.4
+# Ensure 6LoWPAN and IEEE 802.15.4
 scripts/config --module CONFIG_6LOWPAN
 scripts/config --module CONFIG_IEEE802154
 scripts/config --module CONFIG_IEEE802154_6LOWPAN
@@ -53,42 +53,42 @@ scripts/config --module CONFIG_IEEE802154_HWSIM
 scripts/config --module CONFIG_MAC802154
 scripts/config --enable CONFIG_LWTUNNEL
 
-# Limpar certificados Ubuntu (causa erro de build)
+# Clean Ubuntu certificates (causes build errors)
 scripts/config --disable SYSTEM_TRUSTED_KEYS
 scripts/config --disable SYSTEM_REVOCATION_KEYS
 scripts/config --set-str SYSTEM_TRUSTED_KEYS ""
 scripts/config --set-str SYSTEM_REVOCATION_KEYS ""
 
-# Resolver dependências
+# Resolve dependencies
 make olddefconfig
 
-# Verificar
+# Verify
 echo ""
-echo "Verificando configuração:"
+echo "Verifying configuration:"
 grep CONFIG_IPV6_RPL_LWTUNNEL .config
 grep CONFIG_6LOWPAN= .config
 grep CONFIG_IEEE802154= .config
 grep CONFIG_IEEE802154_HWSIM .config
 echo ""
 
-# 5. Compilar como .deb
-echo "[5/7] Compilando kernel (isso demora 15-30 min)..."
+# 5. Compile as .deb
+echo "[5/7] Compiling kernel (this takes 15-30 min)..."
 CORES=$(nproc)
-echo "Usando ${CORES} cores..."
+echo "Using ${CORES} cores..."
 make -j${CORES} bindeb-pkg
 
-# 6. Listar pacotes gerados
+# 6. List generated packages
 echo ""
-echo "[6/7] Pacotes gerados:"
+echo "[6/7] Generated packages:"
 ls -lh "$HOME"/linux-image-${KERNEL_VERSION}*.deb 2>/dev/null
 ls -lh "$HOME"/linux-headers-${KERNEL_VERSION}*.deb 2>/dev/null
 
 echo ""
-echo "[7/7] Pronto!"
+echo "[7/7] Done!"
 echo ""
-echo "Para instalar na VM, copie os .deb e rode:"
-echo "  scp ~/linux-image-${KERNEL_VERSION}*.deb ~/linux-headers-${KERNEL_VERSION}*.deb wifi@IP_DA_VM:~/"
-echo "  ssh wifi@IP_DA_VM"
+echo "To install on the VM, copy the .deb files and run:"
+echo "  scp ~/linux-image-${KERNEL_VERSION}*.deb ~/linux-headers-${KERNEL_VERSION}*.deb wifi@VM_IP:~/"
+echo "  ssh wifi@VM_IP"
 echo "  sudo dpkg -i linux-image-${KERNEL_VERSION}*.deb linux-headers-${KERNEL_VERSION}*.deb"
 echo "  sudo update-grub"
 echo "  sudo reboot"

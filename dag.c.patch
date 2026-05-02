@@ -1,16 +1,17 @@
---- Modificações no dag.c para HyMRPL ---
+--- Modifications to dag.c for HyMRPL ---
 
-Apenas dois trechos precisam ser alterados no dag.c original.
-O resto do arquivo permanece idêntico.
+Only two sections need to be changed in the original dag.c.
+The rest of the file remains identical.
 
-=== ALTERAÇÃO 1: na função dag_init(), após "dag->mop = mop;" adicionar: ===
+=== CHANGE 1: in dag_init(), after "dag->mop = mop;" add: ===
 
     dag->mop = mop;
     dag->node_class = HYMRPL_CLASS_S;  /* default: storing-like */
+    dag->parent_last_seen = ev_now(EV_DEFAULT);  /* HyMRPL: avoid false positive on first liveness check */
 
-=== ALTERAÇÃO 2: na função dag_build_dao(), substituir o switch inteiro: ===
+=== CHANGE 2: in dag_build_dao(), replace the entire switch: ===
 
-Trocar:
+Replace:
 
         switch (dag->mop) {
         case RPL_DIO_STORING_NO_MULTICAST:
@@ -27,7 +28,7 @@ Trocar:
                 break;
         }
 
-Por:
+With:
 
         switch (dag->mop) {
         case RPL_DIO_STORING_NO_MULTICAST:
@@ -44,16 +45,20 @@ Por:
                  * Transit info with parent address is also already appended.
                  * No child aggregation needed — root builds full tree from
                  * individual DAOs.
+                 *
+                 * NOTE: the original rpld Non-Storing case in dag_build_dao
+                 * fell through to default (no explicit case). This explicit
+                 * case documents the intended behavior.
                  */
                 break;
         case RPL_DIO_HYBRID:
                 /*
-                 * HyMRPL: Classe S nodes include child targets in DAO
+                 * HyMRPL: Class S nodes include child targets in DAO
                  * (storing-like aggregation). This allows the root to learn
-                 * about nodes behind Classe S nodes even if intermediate
-                 * Classe N nodes don't aggregate.
+                 * about nodes behind Class S nodes even if intermediate
+                 * Class N nodes don't aggregate.
                  *
-                 * Classe N nodes only send their own target (already appended
+                 * Class N nodes only send their own target (already appended
                  * above), matching non-storing behavior.
                  */
                 if (dag->node_class == HYMRPL_CLASS_S) {
@@ -71,4 +76,4 @@ Por:
                 break;
         }
 
-=== Nenhuma outra alteração necessária no dag.c ===
+=== No other changes required in dag.c ===

@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-HyMRPL — Experimento completo: métricas extras + mobilidade
+HyMRPL — Complete experiment: extra metrics + mobility
 
-Parte 1: Coleta de métricas adicionais em topologia estática
-  - Contagem DIO/DAO (overhead de controle) via tcpdump
-  - Tipo de encaminhamento (SRH vs hop-by-hop) via traceroute6
-  - Latência upward vs downward separada
+Part 1: Collection of additional metrics in static topology
+  - DIO/DAO count (control overhead) via tcpdump
+  - Forwarding type (SRH vs hop-by-hop) via traceroute6
+  - Separate upward vs downward latency
 
-Parte 2: Cenário de mobilidade do sensor5
-  - Fase A: sensor5 conectado a sensor4 (estado inicial)
-  - Fase B: sensor5 se afasta de sensor4 (atenuação +6dB)
-  - Fase C: handover sensor4->sensor3 (atenuação +10dB)
-  - Fase D: sensor5 estabiliza perto de sensor2
-  - Fase E: sensor5 sai da rede
+Part 2: Mobility scenario for sensor5
+  - Phase A: sensor5 connected to sensor4 (initial state)
+  - Phase B: sensor5 moves away from sensor4 (attenuation +6dB)
+  - Phase C: handover sensor4->sensor3 (attenuation +10dB)
+  - Phase D: sensor5 stabilizes near sensor2
+  - Phase E: sensor5 leaves the network
 
-Topologia criada UMA vez, reutilizada pra tudo.
-Uso: sudo python3 hymrpl_full_experiment.py [--runs 3] [--skip-static] [--skip-mobility]
+Topology created ONCE, reused for everything.
+Usage: sudo python3 hymrpl_full_experiment.py [--runs 3] [--skip-static] [--skip-mobility]
 """
 
 import time, re, csv, os, sys, statistics, subprocess, signal
@@ -198,24 +198,24 @@ def measure_cpu_mem(sensor):
 
 
 # ============================================================
-# Métricas extras: DIO/DAO count, traceroute, encaminhamento
+# Extra metrics: DIO/DAO count, traceroute, forwarding
 # ============================================================
 
 def count_dio_dao(sensor, duration=15):
-    """Captura pacotes RPL por 'duration' segundos e conta DIO/DAO."""
+    """Captures RPL packets for 'duration' seconds and counts DIO/DAO."""
     iface = get_iface_name(sensor)
     pcap = '/tmp/rpl_{}.pcap'.format(sensor.name)
-    # Inicia captura em background
+    # Start capture in background
     sensor.cmd('tcpdump -i {} -w {} icmp6 2>/dev/null &'.format(iface, pcap))
     time.sleep(duration)
     sensor.cmd('killall tcpdump 2>/dev/null')
     time.sleep(1)
-    # Conta DIO e DAO nos pacotes capturados
+    # Count DIO and DAO in captured packets
     output = sensor.cmd('tcpdump -r {} -v 2>/dev/null'.format(pcap))
     # RPL DIO = code 0x01, DAO = code 0x02 no ICMPv6 type 155
     dio_count = output.lower().count('dio')
     dao_count = output.lower().count('dao')
-    # Fallback: contar por "RPL" genérico
+    # Fallback: count by generic "RPL"
     if dio_count == 0 and dao_count == 0:
         rpl_lines = [l for l in output.split('\n') if 'RPL' in l or 'rpl' in l]
         dio_count = len([l for l in rpl_lines if 'DIS' not in l.upper()])
@@ -225,7 +225,7 @@ def count_dio_dao(sensor, duration=15):
 
 
 def check_encapsulation(src, dst_addr):
-    """Verifica tipo de encaminhamento via traceroute6."""
+    """Checks forwarding type via traceroute6."""
     output = src.cmd('traceroute6 -n -w 2 -q 1 {} 2>/dev/null'.format(dst_addr))
     hops = []
     for line in output.strip().split('\n')[1:]:  # skip header
@@ -240,11 +240,11 @@ def check_encapsulation(src, dst_addr):
 
 
 # ============================================================
-# Parte 1: Estática com métricas extras
+# Part 1: Static with extra metrics
 # ============================================================
 
 def run_static_extended(sensors, mode, run_id, runs_total):
-    """Run estático com métricas extras: DIO/DAO, traceroute, encaminhamento."""
+    """Static run with extra metrics: DIO/DAO, traceroute, forwarding."""
     info("=== {} | Run {}/{} (extended) ===\n".format(mode.upper(), run_id, runs_total))
     results = {"mode": mode, "run": run_id, "experiment": "static"}
 
@@ -274,7 +274,7 @@ def run_static_extended(sensors, mode, run_id, runs_total):
     info("  Stabilizing (10s)...\n")
     time.sleep(10)
 
-    # Endereços
+    # Addresses
     addrs = {}
     for s in sensors:
         addrs[s.name] = get_global_addr(s)
@@ -312,7 +312,7 @@ def run_static_extended(sensors, mode, run_id, runs_total):
     results["root_dio_count"] = dio
     results["root_dao_count"] = dao
 
-    # Tipo de encaminhamento (traceroute root -> sensor5)
+    # Forwarding type (traceroute root -> sensor5)
     if addrs.get('sensor5'):
         info("  Checking encapsulation type...\n")
         encap, hops = check_encapsulation(sensors[0], addrs['sensor5'])
@@ -323,20 +323,20 @@ def run_static_extended(sensors, mode, run_id, runs_total):
 
 
 # ============================================================
-# Parte 2: Mobilidade
+# Part 2: Mobility
 # ============================================================
 
 def run_mobility_experiment(sensors, mode, run_id):
     """
-    Cenário de mobilidade do sensor5 conforme planejamento da dissertação.
-    Simula mobilidade alterando atenuação via wmediumd_cli.
+    Mobility scenario for sensor5 as planned in the dissertation.
+    Simulates mobility by changing attenuation via wmediumd_cli.
 
-    Fases:
-      A: sensor5 conectado a sensor4 (baseline)
-      B: sensor5 se afasta (+6dB no enlace sensor4-sensor5)
+    Phases:
+      A: sensor5 connected to sensor4 (baseline)
+      B: sensor5 moves away (+6dB on sensor4-sensor5 link)
       C: handover sensor4->sensor3 (+10dB sensor4, 0dB sensor3-sensor5)
-      D: sensor5 estabiliza perto de sensor2
-      E: sensor5 sai da rede (atenuação total)
+      D: sensor5 stabilizes near sensor2
+      E: sensor5 leaves the network (total attenuation)
     """
     info("\n=== MOBILITY {} | Run {} ===\n".format(mode.upper(), run_id))
     results = {"mode": mode, "run": run_id, "experiment": "mobility"}
@@ -347,7 +347,7 @@ def run_mobility_experiment(sensors, mode, run_id):
 
     start_rpld(sensors, mode)
 
-    # Espera convergência inicial
+    # Wait for initial convergence
     info("  Waiting for initial convergence...\n")
     target_addr = wait_for_global_addr(sensors[4])
     if not target_addr:
@@ -369,7 +369,7 @@ def run_mobility_experiment(sensors, mode, run_id):
     for s in sensors:
         addrs[s.name] = get_global_addr(s)
 
-    # --- Fase A: Baseline (sensor5 conectado a sensor4) ---
+    # --- Phase A: Baseline (sensor5 connected to sensor4) ---
     info("  --- Phase A: Baseline ---\n")
     if addrs.get('sensor5'):
         m = measure_pdr_latency(sensors[0], addrs['sensor5'], count=30)
@@ -378,13 +378,13 @@ def run_mobility_experiment(sensors, mode, run_id):
         results["A_lat_p95"] = round(m["lat_p95"], 3)
         info("    PDR={:.1f}% lat={:.3f}ms\n".format(m["pdr"], m["lat_avg"]))
 
-    # --- Fase B: sensor5 se afasta (+6dB) ---
+    # --- Phase B: sensor5 moves away (+6dB) ---
     info("  --- Phase B: Attenuation +6dB ---\n")
     # wmediumd_cli altera SNR entre nós
     subprocess.run('wmediumd_cli set_snr sensor4 sensor5 6 2>/dev/null', shell=True)
     time.sleep(15)
 
-    # Mede reconvergência
+    # Measure reconvergence
     reconv_start = time.time()
     if addrs.get('sensor5'):
         m = measure_pdr_latency(sensors[0], addrs['sensor5'], count=30)
@@ -394,19 +394,19 @@ def run_mobility_experiment(sensors, mode, run_id):
         results["B_reconv_s"] = round(time.time() - reconv_start, 2)
         info("    PDR={:.1f}% lat={:.3f}ms\n".format(m["pdr"], m["lat_avg"]))
 
-    # --- Fase C: Handover sensor4->sensor3 (+10dB sensor4, 0dB sensor3) ---
+    # --- Phase C: Handover sensor4->sensor3 (+10dB sensor4, 0dB sensor3) ---
     info("  --- Phase C: Handover to sensor3 ---\n")
     subprocess.run('wmediumd_cli set_snr sensor4 sensor5 10 2>/dev/null', shell=True)
     subprocess.run('wmediumd_cli set_snr sensor3 sensor5 0 2>/dev/null', shell=True)
     reconv_start = time.time()
     time.sleep(20)
 
-    # Verifica se sensor5 ainda é alcançável (pode ter novo endereço)
+    # Check if sensor5 is still reachable (may have new address)
     new_addr = get_global_addr(sensors[4])
     if new_addr:
         addrs['sensor5'] = new_addr
     if addrs.get('sensor5'):
-        # Tenta reconvergência
+        # Try reconvergence
         reconv = wait_for_convergence(sensors[0], addrs['sensor5'], max_attempts=60)
         results["C_reconv_s"] = round(reconv, 2) if reconv > 0 else -1
         m = measure_pdr_latency(sensors[0], addrs['sensor5'], count=30)
@@ -416,7 +416,7 @@ def run_mobility_experiment(sensors, mode, run_id):
         info("    PDR={:.1f}% lat={:.3f}ms reconv={}\n".format(
             m["pdr"], m["lat_avg"], results.get("C_reconv_s", "N/A")))
 
-    # --- Fase D: sensor5 estabiliza perto de sensor2 ---
+    # --- Phase D: sensor5 stabilizes near sensor2 ---
     info("  --- Phase D: Near sensor2 ---\n")
     subprocess.run('wmediumd_cli set_snr sensor4 sensor5 20 2>/dev/null', shell=True)
     subprocess.run('wmediumd_cli set_snr sensor3 sensor5 15 2>/dev/null', shell=True)
@@ -435,14 +435,14 @@ def run_mobility_experiment(sensors, mode, run_id):
         results["D_lat_p95"] = round(m["lat_p95"], 3)
         info("    PDR={:.1f}% lat={:.3f}ms\n".format(m["pdr"], m["lat_avg"]))
 
-    # Tráfego local sensor4->sensor5 (caminho storing se ambos Classe S)
+    # Local traffic sensor4->sensor5 (storing path if both Class S)
     if addrs.get('sensor5'):
         info("  --- Local traffic sensor4->sensor5 ---\n")
         m_local = measure_pdr_latency(sensors[3], addrs['sensor5'], count=30)
         results["D_local_pdr"] = round(m_local["pdr"], 1)
         results["D_local_lat_avg"] = round(m_local["lat_avg"], 3)
 
-    # --- Fase E: sensor5 sai da rede ---
+    # --- Phase E: sensor5 leaves the network ---
     info("  --- Phase E: sensor5 leaves ---\n")
     subprocess.run('wmediumd_cli set_snr sensor2 sensor5 30 2>/dev/null', shell=True)
     subprocess.run('wmediumd_cli set_snr sensor3 sensor5 30 2>/dev/null', shell=True)
@@ -454,7 +454,7 @@ def run_mobility_experiment(sensors, mode, run_id):
         results["E_pdr"] = round(m["pdr"], 1)
         info("    PDR after leave: {:.1f}%\n".format(m["pdr"]))
 
-    # Reset atenuações pra próxima run
+    # Reset attenuations for next run
     for pair in [('sensor4','sensor5'), ('sensor3','sensor5'), ('sensor2','sensor5')]:
         subprocess.run('wmediumd_cli set_snr {} {} 0 2>/dev/null'.format(*pair), shell=True)
     time.sleep(3)
@@ -563,7 +563,7 @@ def main():
     info("*** Creating topology\n")
     net, sensors = create_topology()
 
-    # Parte 1: Estática com métricas extras
+    # Part 1: Static with extra metrics
     if not args.skip_static:
         for mode in args.modes:
             info("\n### STATIC: {} ###\n".format(mode.upper()))
@@ -578,7 +578,7 @@ def main():
                     all_results.append({"mode": mode, "run": run_id,
                                         "experiment": "static", "convergence_s": -1})
 
-    # Parte 2: Mobilidade
+    # Part 2: Mobility
     if not args.skip_mobility:
         for mode in args.modes:
             info("\n### MOBILITY: {} ###\n".format(mode.upper()))
@@ -593,7 +593,7 @@ def main():
                     all_results.append({"mode": mode, "run": run_id,
                                         "experiment": "mobility", "phase_A_convergence": -1})
 
-    # Salva tudo
+    # Save everything
     stop_rpld(sensors)
     csv_path = os.path.join(RESULTS_DIR, "full_experiment_{}.csv".format(ts))
     save_csv(all_results, csv_path)

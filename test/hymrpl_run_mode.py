@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-HyMRPL — Benchmark com topologia persistente.
-Cria a topologia UMA vez, roda todos os modos trocando só o config do rpld.
-Uso: sudo python3 hymrpl_run_mode.py [--runs 3] [--modes storing nonstoring hybrid]
+HyMRPL — Benchmark with persistent topology.
+Creates the topology ONCE, runs all modes switching only the rpld config.
+Usage: sudo python3 hymrpl_run_mode.py [--runs 3] [--modes storing nonstoring hybrid]
 """
 
 import time, re, csv, os, sys, statistics
@@ -113,7 +113,7 @@ def stop_rpld(sensors):
 
 
 def clean_state(sensors):
-    """Limpa rotas e endereços globais sem destruir a topologia."""
+    """Cleans routes and global addresses without destroying the topology."""
     for s in sensors:
         iface = get_iface_name(s)
         s.cmd('ip -6 route flush proto static 2>/dev/null')
@@ -204,12 +204,12 @@ def run_single(sensors, mode, run_id, runs_total):
     info("=== {} | Run {}/{} ===\n".format(mode.upper(), run_id, runs_total))
     results = {"mode": mode, "run": run_id}
 
-    # Para rpld anterior e limpa estado (sem destruir topologia)
+    # Stop previous rpld and clean state (without destroying topology)
     stop_rpld(sensors)
     clean_state(sensors)
     time.sleep(3)
 
-    # Inicia rpld com novo modo
+    # Start rpld with new mode
     start_time = time.time()
     start_rpld(sensors, mode)
 
@@ -287,11 +287,11 @@ def main():
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     all_results = []
 
-    # Cria topologia UMA vez
+    # Create topology ONCE
     info("*** Creating topology (persistent for all modes)\n")
     net, sensors = create_topology()
 
-    # Roda todos os modos na mesma topologia
+    # Run all modes on the same topology
     for mode in args.modes:
         info("\n### TESTING MODE: {} ###\n".format(mode.upper()))
 
@@ -306,10 +306,10 @@ def main():
                 info(traceback.format_exc() + "\n")
                 all_results.append({"mode": mode, "run": run_id, "convergence_s": -1})
 
-    # Cleanup final
+    # Final cleanup
     stop_rpld(sensors)
 
-    # Gera outputs antes de net.stop()
+    # Generate outputs before net.stop()
     csv_path = os.path.join(RESULTS_DIR, "benchmark_{}.csv".format(ts))
     save_csv(all_results, csv_path)
 
@@ -346,7 +346,7 @@ def main():
     print("\nResults: {}".format(csv_path))
     print("=" * 60)
 
-    # net.stop() vai matar o processo, mas os resultados já foram salvos
+    # net.stop() will kill the process, but results have already been saved
     info("\n*** Results saved. Stopping network (may kill process)...\n")
     net.stop()
 

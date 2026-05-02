@@ -295,7 +295,14 @@ static void process_dao(int sock, struct iface *iface, const void *msg,
                 }
                 break;
         case RPL_DIO_NONSTORING:
-                /* Process ALL targets with the transit info */
+                /*
+                 * Process ALL targets with the transit info.
+                 * Fix: the original rpld only processed the last target
+                 * in the DAO (single 'target' variable overwritten in the
+                 * parse loop). This iterates over all collected targets,
+                 * which is required when a DAO carries multiple RPL Target
+                 * options (RFC6550 Section 6.7.7).
+                 */
                 if (transit) {
                         int i;
                         for (i = 0; i < target_count; i++) {

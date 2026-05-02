@@ -1,125 +1,125 @@
 # HyMRPL — Hybrid Mode of Operation for RPL (MOP=6)
 
-Repositório: https://github.com/CassiusClayB/rpld_hymrpl.git
+Repository: https://github.com/CassiusClayB/rpld_hymrpl.git
 
-Implementação do HyMRPL, um modo híbrido experimental para o protocolo RPL que permite a coexistência simultânea de comportamentos Storing (Classe S) e Non-Storing (Classe N) em uma mesma DODAG. Baseado no daemon [rpld](https://github.com/ramonfontes/rpld) de Ramon Fontes / Alexander Aring.
+Implementation of HyMRPL, an experimental hybrid mode for the RPL protocol that enables the simultaneous coexistence of Storing (Class S) and Non-Storing (Class N) behaviors within a single DODAG. Based on the [rpld](https://github.com/ramonfontes/rpld) daemon by Ramon Fontes / Alexander Aring.
 
-## Visão Geral
+## Overview
 
-O RPL (RFC 6550) define o Mode of Operation (MOP) como um parâmetro global da DODAG, forçando todos os nós a operarem no mesmo modo. O HyMRPL introduz o valor experimental MOP=6 (permitido pela RFC, que reserva os valores 4-7), no qual cada nó decide localmente se opera como:
+RPL (RFC 6550) defines the Mode of Operation (MOP) as a global DODAG parameter, forcing all nodes to operate in the same mode. HyMRPL introduces the experimental value MOP=6 (permitted by the RFC, which reserves values 4-7), where each node locally decides whether to operate as:
 
-- **Classe S** (storing-like): mantém tabelas de rotas descendentes, encaminha hop-by-hop
-- **Classe N** (non-storing-like): não mantém estado, delega ao root via Source Routing Header (SRH)
+- **Class S** (storing-like): maintains downward routing tables, forwards hop-by-hop
+- **Class N** (non-storing-like): maintains no state, delegates to the root via Source Routing Header (SRH)
 
-A troca de classe pode ser feita em runtime via FIFO (`/tmp/hymrpl_cmd`), sem reiniciar o daemon e sem emitir mensagens extras na rede.
+Class switching can be performed at runtime via FIFO (`/tmp/hymrpl_cmd`), without restarting the daemon and without emitting any extra messages on the network.
 
-## Pré-requisitos
+## Prerequisites
 
-- Ubuntu 22.04+ (testado em VM com Mininet-WiFi)
-- Kernel Linux 6.x compilado com suporte a RPL SRH (ver seção abaixo)
-- Mininet-WiFi com suporte a 6LoWPAN
-- Dependências: `meson`, `ninja-build`, `liblua5.3-dev`, `libev-dev`, `libnl-3-dev`, `libnl-genl-3-dev`
+- Ubuntu 22.04+ (tested on a VM with Mininet-WiFi)
+- Linux Kernel 6.x compiled with RPL SRH support (see section below)
+- Mininet-WiFi with 6LoWPAN support
+- Dependencies: `meson`, `ninja-build`, `liblua5.3-dev`, `libev-dev`, `libnl-3-dev`, `libnl-genl-3-dev`
 
 ---
 
-## 1. Compilação do Kernel com SRH Habilitado
+## 1. Kernel Compilation with SRH Support
 
-O HyMRPL depende do módulo `CONFIG_IPV6_RPL_LWTUNNEL` do kernel Linux para processar o Source Routing Header (SRH) do RPL. Sem esse módulo, o encaminhamento Non-Storing e o modo híbrido não funcionam. O kernel padrão do Ubuntu **não** vem com esse módulo habilitado, portanto é necessário recompilar.
+HyMRPL depends on the `CONFIG_IPV6_RPL_LWTUNNEL` Linux kernel module to process the RPL Source Routing Header (SRH). Without this module, Non-Storing forwarding and hybrid mode do not work. The default Ubuntu kernel does **not** ship with this module enabled, so recompilation is required.
 
-### O que o script `build_kernel.sh` faz
+### What `build_kernel.sh` does
 
-O script automatiza todo o processo de compilação do kernel 6.11:
+The script automates the entire kernel 6.11 compilation process:
 
 ```
 bash build_kernel.sh
 ```
 
-**Etapas executadas pelo script:**
+**Steps performed by the script:**
 
-1. **Instala dependências de build** (`build-essential`, `libncurses-dev`, `bison`, `flex`, `libssl-dev`, `libelf-dev`, `bc`, `dwarves`)
-2. **Baixa o kernel 6.11** do kernel.org (se ainda não baixado)
-3. **Extrai** o tarball em `~/linux-6.11/`
-4. **Configura o kernel** partindo do `.config` atual da máquina e habilitando os módulos necessários:
-   - `CONFIG_IPV6_RPL_LWTUNNEL=y` — suporte ao SRH do RPL (módulo principal)
-   - `CONFIG_6LOWPAN=m` — camada de adaptação 6LoWPAN
-   - `CONFIG_IEEE802154=m` — suporte a IEEE 802.15.4
-   - `CONFIG_IEEE802154_HWSIM=m` — interfaces 802.15.4 virtuais (para emulação)
-   - `CONFIG_MAC802154=m` — camada MAC 802.15.4
-   - `CONFIG_LWTUNNEL=y` — infraestrutura de lightweight tunnels (dependência do SRH)
-5. **Desabilita certificados Ubuntu** que causam erro de build (`SYSTEM_TRUSTED_KEYS`, `SYSTEM_REVOCATION_KEYS`)
-6. **Compila** o kernel como pacotes `.deb` usando todos os cores disponíveis (15-30 min)
-7. **Lista os pacotes gerados** (`linux-image-6.11*.deb`, `linux-headers-6.11*.deb`)
+1. **Installs build dependencies** (`build-essential`, `libncurses-dev`, `bison`, `flex`, `libssl-dev`, `libelf-dev`, `bc`, `dwarves`)
+2. **Downloads kernel 6.11** from kernel.org (if not already downloaded)
+3. **Extracts** the tarball to `~/linux-6.11/`
+4. **Configures the kernel** starting from the current machine's `.config` and enabling the required modules:
+   - `CONFIG_IPV6_RPL_LWTUNNEL=y` — RPL SRH support (main module)
+   - `CONFIG_6LOWPAN=m` — 6LoWPAN adaptation layer
+   - `CONFIG_IEEE802154=m` — IEEE 802.15.4 support
+   - `CONFIG_IEEE802154_HWSIM=m` — Virtual 802.15.4 interfaces (for emulation)
+   - `CONFIG_MAC802154=m` — 802.15.4 MAC layer
+   - `CONFIG_LWTUNNEL=y` — Lightweight tunnel infrastructure (SRH dependency)
+5. **Disables Ubuntu certificates** that cause build errors (`SYSTEM_TRUSTED_KEYS`, `SYSTEM_REVOCATION_KEYS`)
+6. **Compiles** the kernel as `.deb` packages using all available cores (15-30 min)
+7. **Lists the generated packages** (`linux-image-6.11*.deb`, `linux-headers-6.11*.deb`)
 
-### Instalação do kernel na VM
+### Installing the kernel on the VM
 
-Após a compilação, copie os `.deb` para a VM e instale:
+After compilation, copy the `.deb` files to the VM and install:
 
 ```bash
-# Na máquina host
-scp ~/linux-image-6.11*.deb ~/linux-headers-6.11*.deb usuario@IP_DA_VM:~/
+# On the host machine
+scp ~/linux-image-6.11*.deb ~/linux-headers-6.11*.deb user@VM_IP:~/
 
-# Na VM
+# On the VM
 sudo dpkg -i ~/linux-image-6.11*.deb ~/linux-headers-6.11*.deb
 sudo update-grub
 sudo reboot
 ```
 
-### Verificação
+### Verification
 
-Após o reboot, confirme que o módulo está habilitado:
+After reboot, confirm the module is enabled:
 
 ```bash
 grep RPL_LWTUNNEL /boot/config-$(uname -r)
-# Deve retornar: CONFIG_IPV6_RPL_LWTUNNEL=y
+# Should return: CONFIG_IPV6_RPL_LWTUNNEL=y
 ```
 
-### Por que esses módulos são necessários
+### Why these modules are required
 
-| Módulo | Função |
-|--------|--------|
-| `CONFIG_IPV6_RPL_LWTUNNEL` | Processa o SRH: atualiza Segments Left, substitui endereço de destino, reencaminha o pacote |
-| `CONFIG_6LOWPAN` | Compressão/fragmentação IPv6 sobre 802.15.4 |
-| `CONFIG_IEEE802154_HWSIM` | Cria interfaces 802.15.4 virtuais para emulação no Mininet-WiFi |
-| `CONFIG_LWTUNNEL` | Base para lightweight tunnels, dependência do módulo SRH |
+| Module | Function |
+|--------|----------|
+| `CONFIG_IPV6_RPL_LWTUNNEL` | Processes SRH: updates Segments Left, substitutes destination address, re-forwards the packet |
+| `CONFIG_6LOWPAN` | IPv6 compression/fragmentation over 802.15.4 |
+| `CONFIG_IEEE802154_HWSIM` | Creates virtual 802.15.4 interfaces for Mininet-WiFi emulation |
+| `CONFIG_LWTUNNEL` | Lightweight tunnel base, SRH module dependency |
 
-Sem o `CONFIG_IPV6_RPL_LWTUNNEL`, o comando `ip -6 route add ... encap rpl ...` falha e nenhuma rota SRH pode ser instalada.
+Without `CONFIG_IPV6_RPL_LWTUNNEL`, the command `ip -6 route add ... encap rpl ...` fails and no SRH routes can be installed.
 
 ---
 
-## 2. Instalação Rápida na VM
+## 2. Quick Installation on the VM
 
-O script `install_on_vm.sh` automatiza a instalação completa dentro da VM:
+The `install_on_vm.sh` script automates the complete installation inside the VM:
 
 ```bash
 bash install_on_vm.sh
 ```
 
-**O que ele faz:**
-1. Instala os pacotes `.deb` do kernel compilado
-2. Instala dependências do rpld (`meson`, `ninja-build`, `liblua5.3-dev`, etc.)
-3. Clona o rpld original do GitHub
-4. Copia os arquivos de configuração HyMRPL para `/etc/rpld/`
-5. Instrui o reboot e os próximos passos
+**What it does:**
+1. Installs the compiled kernel `.deb` packages
+2. Installs rpld dependencies (`meson`, `ninja-build`, `liblua5.3-dev`, etc.)
+3. Clones the original rpld from GitHub
+4. Copies HyMRPL configuration files to `/etc/rpld/`
+5. Instructs reboot and next steps
 
 ---
 
-## 3. Aplicação dos Patches no rpld
+## 3. Applying Patches to rpld
 
-O script `apply_patches.sh` aplica as modificações do HyMRPL sobre o rpld original:
+The `apply_patches.sh` script applies HyMRPL modifications on top of the original rpld:
 
 ```bash
 bash apply_patches.sh ~/rpld ~/rpld_hymrpl
 ```
 
-**O que ele faz:**
-1. Faz backup dos arquivos originais em `rpld/backup_original/`
-2. Substitui os arquivos completos: `rpl.h`, `dag.h`, `config.h`, `process.c`
-3. Aplica patches via `sed` nos arquivos `dag.c` e `config.c`:
-   - Inicializa `node_class` no `dag_create()`
-   - Adiciona case `RPL_DIO_HYBRID` no `dag_build_dao()` (agregação de targets por classe)
-   - Adiciona leitura de `node_class` no `config_load()` (iface e DAG)
+**What it does:**
+1. Backs up original files to `rpld/backup_original/`
+2. Replaces complete files: `rpl.h`, `dag.h`, `config.h`, `process.c`
+3. Applies patches via `sed` to `dag.c` and `config.c`:
+   - Initializes `node_class` in `dag_create()`
+   - Adds `RPL_DIO_HYBRID` case in `dag_build_dao()` (per-class target aggregation)
+   - Adds `node_class` reading in `config_load()` (iface and DAG)
 
-### Compilação após os patches
+### Compilation after patching
 
 ```bash
 cd ~/rpld
@@ -130,24 +130,24 @@ ninja -C build
 
 ---
 
-## 4. Arquivos Modificados
+## 4. Modified Files
 
-| Arquivo | Modificação |
-|---------|-------------|
-| `rpl.h` | Adicionado `RPL_DIO_HYBRID = 0x6` no enum `RPL_DIO_MOP` e defines `HYMRPL_CLASS_S` / `HYMRPL_CLASS_N` |
-| `dag.h` | Adicionado campo `uint8_t node_class` na `struct dag` |
-| `config.h` | Adicionado campo `uint8_t node_class` na `struct iface` |
-| `process.c` | Lógica híbrida completa: processamento de DIO com propagação de classe, processamento de DAO com 3 comportamentos (root/Classe S/Classe N), suporte a múltiplos targets por DAO |
-| `dag.c` (via patch) | Inicialização de `node_class`, construção de DAO com agregação de targets para Classe S |
-| `config.c` (via patch) | Leitura de `node_class` do arquivo de configuração Lua |
+| File | Modification |
+|------|-------------|
+| `rpl.h` | Added `RPL_DIO_HYBRID = 0x6` to the `RPL_DIO_MOP` enum and defines `HYMRPL_CLASS_S` / `HYMRPL_CLASS_N` |
+| `dag.h` | Added `uint8_t node_class` field to `struct dag` |
+| `config.h` | Added `uint8_t node_class` field to `struct iface` |
+| `process.c` | Complete hybrid logic: DIO processing with class propagation, DAO processing with 3 behaviors (root/Class S/Class N), multi-target DAO support |
+| `dag.c` (via patch) | `node_class` initialization, DAO construction with target aggregation for Class S |
+| `config.c` (via patch) | `node_class` reading from Lua configuration file |
 
 ---
 
-## 5. Arquivos de Configuração
+## 5. Configuration Files
 
-Os arquivos de configuração usam sintaxe Lua e ficam em `/etc/rpld/` ou na pasta `test/`.
+Configuration files use Lua syntax and are located in `/etc/rpld/` or the `test/` folder.
 
-### Root (MOP=6, Classe S)
+### Root (MOP=6, Class S)
 ```lua
 -- test/lowpan0_hybrid.conf
 ifaces = { {
@@ -165,7 +165,7 @@ ifaces = { {
 }, }
 ```
 
-### Nó Classe S (storing-like)
+### Class S Node (storing-like)
 ```lua
 -- test/lowpan_hybrid_classS.conf
 ifaces = { {
@@ -175,7 +175,7 @@ ifaces = { {
 }, }
 ```
 
-### Nó Classe N (non-storing-like)
+### Class N Node (non-storing-like)
 ```lua
 -- test/lowpan_hybrid_classN.conf
 ifaces = { {
@@ -187,51 +187,51 @@ ifaces = { {
 
 ---
 
-## 6. Troca Dinâmica de Classe via FIFO
+## 6. Dynamic Class Switching via FIFO
 
-O rpld modificado cria um FIFO POSIX em `/tmp/hymrpl_cmd` e o verifica periodicamente. Para trocar a classe de um nó em runtime:
+The modified rpld creates a POSIX FIFO at `/tmp/hymrpl_cmd` and checks it periodically. To switch a node's class at runtime:
 
 ```bash
-# Trocar para Classe N
+# Switch to Class N
 echo "CLASS_N" > /tmp/hymrpl_cmd
 
-# Trocar para Classe S
+# Switch to Class S
 echo "CLASS_S" > /tmp/hymrpl_cmd
 ```
 
-A troca é imediata, não-disruptiva (PDR 100% durante a transição), reversível e não emite nenhuma mensagem extra na rede.
+The switch is immediate, non-disruptive (100% PDR during transition), reversible, and emits no extra messages on the network.
 
 ---
 
-## 7. Monitor de Adaptação Dinâmica
+## 7. Adaptive Monitoring Daemon
 
-O script `hymrpl_monitor.py` automatiza a decisão de classe baseado em métricas locais:
+The `hymrpl_monitor.py` script automates class decisions based on local metrics:
 
 ```bash
 sudo python3 hymrpl_monitor.py --interval 5 --battery-file /tmp/hymrpl_battery
 ```
 
-**Métricas coletadas:**
+**Collected metrics:**
 - CPU (via `/proc/stat`)
-- Memória disponível (via `/proc/meminfo`)
-- Bateria simulada (via arquivo configurável)
+- Available memory (via `/proc/meminfo`)
+- Simulated battery (via configurable file)
 
-**Lógica de decisão:**
-- CPU > 70% OU memória < 20 MB OU bateria < 20% → sugere Classe N
-- CPU < 40% E memória ok E bateria > 50% → sugere Classe S
-- Histerese de 3 ciclos consecutivos antes de efetuar a troca
+**Decision logic:**
+- CPU > 70% OR memory < 20 MB OR battery < 20% → suggests Class N
+- CPU < 40% AND memory ok AND battery > 50% → suggests Class S
+- Hysteresis of 3 consecutive cycles before applying the switch
 
-O monitor escreve a decisão no FIFO `/tmp/hymrpl_cmd` e registra eventos em `/tmp/hymrpl_monitor.log`.
+The monitor writes the decision to the FIFO `/tmp/hymrpl_cmd` and logs events to `/tmp/hymrpl_monitor.log`.
 
 ---
 
-## 8. Execução dos Experimentos
+## 8. Running the Experiments
 
-A documentação completa de como executar todos os experimentos (benchmark, mobilidade, escalabilidade, churn, captura de pacotes, etc.) está em:
+Complete documentation on how to run all experiments (benchmark, mobility, scalability, churn, packet capture, etc.) is available at:
 
 📄 **[EXPERIMENTS.md](EXPERIMENTS.md)**
 
-Para um teste rápido da topologia interativa:
+For a quick interactive topology test:
 
 ```bash
 sudo python3 test/hymrpl_topology.py
@@ -239,72 +239,73 @@ sudo python3 test/hymrpl_topology.py
 
 ---
 
-## 9. Estrutura do Repositório
+## 9. Repository Structure
 
 ```
 rpld_hymrpl/
-├── README.md                  # Este arquivo
-├── EXPERIMENTS.md             # Guia de execução dos experimentos
-├── rpl.h                      # Header RPL com MOP=6 e defines de classe
-├── dag.h                      # Struct dag com campo node_class
-├── config.h                   # Struct iface com campo node_class
-├── process.c                  # Lógica híbrida de DIO e DAO
-├── dag.c.patch                # Patch para dag.c (agregação de targets)
-├── config.c.patch             # Patch para config.c (leitura de node_class)
-├── rpld_fifo.c.patch          # Patch para FIFO no loop principal
-├── rpld_dis_retry.patch       # Patch para retry de DIS
-├── build_kernel.sh            # Compilação do kernel 6.11 com SRH
-├── apply_patches.sh           # Aplicação dos patches no rpld original
-├── install_on_vm.sh           # Instalação completa na VM
-├── hymrpl_monitor.py          # Monitor de adaptação dinâmica
+├── README.md                  # This file
+├── EXPERIMENTS.md             # Experiment execution guide
+├── rpl.h                      # RPL header with MOP=6 and class defines
+├── dag.h                      # dag struct with node_class field
+├── config.h                   # iface struct with node_class field
+├── process.c                  # Hybrid DIO and DAO logic
+├── dag.c.patch                # Patch for dag.c (target aggregation)
+├── config.c.patch             # Patch for config.c (node_class reading)
+├── rpld_fifo.c.patch          # Patch for FIFO in main loop
+├── rpld_dis_retry.patch       # Patch for DIS retry
+├── rpld_parent_liveness.patch # Patch for parent liveness detection
+├── build_kernel.sh            # Kernel 6.11 compilation with SRH
+├── apply_patches.sh           # Patch application to original rpld
+├── install_on_vm.sh           # Complete VM installation
+├── hymrpl_monitor.py          # Adaptive monitoring daemon
 └── test/
-    ├── lowpan0_hybrid.conf            # Config do root (MOP=6, Classe S)
-    ├── lowpan_hybrid_classS.conf      # Config Classe S (non-root)
-    ├── lowpan_hybrid_classN.conf      # Config Classe N (non-root)
-    ├── hymrpl_topology.py             # Topologia interativa de 5 nós
-    ├── hymrpl_run_mode.py             # Benchmark com topologia persistente
-    ├── hymrpl_run_all.sh              # Execução sequencial dos 3 modos
-    ├── hymrpl_benchmark.py            # Benchmark estático (5 nós)
-    ├── hymrpl_hybrid_advantage.py     # Experimento Hybrid Advantage
-    ├── hymrpl_dynamic_switch.py       # Troca dinâmica de classe via FIFO
-    ├── hymrpl_adaptive_switch.py      # Decisão adaptativa de classe
-    ├── hymrpl_mobility_v2.py          # Mobilidade com tc netem
-    ├── hymrpl_pcap_analysis.py        # Captura e análise de pacotes
-    ├── hymrpl_scalability_10.py       # Escalabilidade 10 nós
-    ├── hymrpl_scalability_15.py       # Escalabilidade 15 nós
-    ├── hymrpl_scalability_20.py       # Escalabilidade 20 nós
-    ├── hymrpl_scalability_50.py       # Escalabilidade 50 nós
-    ├── hymrpl_churn_mobility.py       # Churn com 20 nós
-    ├── hymrpl_mesh_resilience.py      # Resiliência em topologia mesh
-    ├── hymrpl_full_experiment.py      # Experimento completo
-    ├── hymrpl_collect_metrics.py      # Coleta automatizada de métricas
-    ├── hymrpl_gen_latex.py            # Geração de tabelas LaTeX
-    ├── analyze_all.py                 # Análise geral dos resultados
-    ├── analyze_hybrid_advantage.py    # Análise do Hybrid Advantage
-    ├── analyze_dynamic_switch.py      # Análise da troca dinâmica
-    ├── analyze_adaptive_switch.py     # Análise da decisão adaptativa
-    ├── calc_stats.py                  # Cálculo de estatísticas
-    └── pcaps/                         # Capturas de pacotes (.pcap)
+    ├── lowpan0_hybrid.conf            # Root config (MOP=6, Class S)
+    ├── lowpan_hybrid_classS.conf      # Class S config (non-root)
+    ├── lowpan_hybrid_classN.conf      # Class N config (non-root)
+    ├── hymrpl_topology.py             # Interactive 5-node topology
+    ├── hymrpl_run_mode.py             # Benchmark with persistent topology
+    ├── hymrpl_run_all.sh              # Sequential execution of all 3 modes
+    ├── hymrpl_benchmark.py            # Static benchmark (5 nodes)
+    ├── hymrpl_hybrid_advantage.py     # Hybrid Advantage experiment
+    ├── hymrpl_dynamic_switch.py       # Dynamic class switching via FIFO
+    ├── hymrpl_adaptive_switch.py      # Adaptive class decision
+    ├── hymrpl_mobility_v2.py          # Mobility with tc netem
+    ├── hymrpl_pcap_analysis.py        # Packet capture and analysis
+    ├── hymrpl_scalability_10.py       # Scalability 10 nodes
+    ├── hymrpl_scalability_15.py       # Scalability 15 nodes
+    ├── hymrpl_scalability_20.py       # Scalability 20 nodes
+    ├── hymrpl_scalability_50.py       # Scalability 50 nodes
+    ├── hymrpl_churn_mobility.py       # Churn with 20 nodes
+    ├── hymrpl_mesh_resilience.py      # Mesh topology resilience
+    ├── hymrpl_full_experiment.py      # Full experiment
+    ├── hymrpl_collect_metrics.py      # Automated metric collection
+    ├── hymrpl_gen_latex.py            # LaTeX table generation
+    ├── analyze_all.py                 # General result analysis
+    ├── analyze_hybrid_advantage.py    # Hybrid Advantage analysis
+    ├── analyze_dynamic_switch.py      # Dynamic switch analysis
+    ├── analyze_adaptive_switch.py     # Adaptive decision analysis
+    ├── calc_stats.py                  # Statistics calculation
+    └── pcaps/                         # Packet captures (.pcap)
 ```
 
 ---
 
-## 10. VM Pré-configurada
+## 10. Pre-configured VM
 
-Uma VM pronta com todo o ambiente configurado (kernel 6.11 com SRH, rpld com patches HyMRPL, Mininet-WiFi com 6LoWPAN) está disponível para download:
+A ready-to-use VM with the complete environment configured (kernel 6.11 with SRH, rpld with HyMRPL patches, Mininet-WiFi with 6LoWPAN) is available for download:
 
-**[Download da VM (OVA ~7 GB)](https://drive.google.com/file/d/1gqdqieW8yGN4DSRTHHDztnRtNtA46LMs/view?usp=sharing)**
+**[Download VM (OVA ~7 GB)](https://drive.google.com/file/d/1gqdqieW8yGN4DSRTHHDztnRtNtA46LMs/view?usp=sharing)**
 
-Para importar:
-1. Abra o VirtualBox e vá em `Arquivo > Importar Appliance`
-2. Selecione o arquivo `mn-wifi-vm.ova`
-3. Após a importação, inicie a VM e verifique o kernel: `uname -r` (deve ser 6.11.x)
+To import:
+1. Open VirtualBox and go to `File > Import Appliance`
+2. Select the `mn-wifi-vm.ova` file
+3. After import, start the VM and verify the kernel: `uname -r` (should be 6.11.x)
 
 ---
 
-## Referências
+## References
 
 - RFC 6550 — RPL: IPv6 Routing Protocol for Low-Power and Lossy Networks
 - RFC 6554 — An IPv6 Routing Header for Source Routes with RPL
-- rpld original: https://github.com/ramonfontes/rpld
+- Original rpld: https://github.com/ramonfontes/rpld
 - Mininet-WiFi: https://github.com/intrig-unicamp/mininet-wifi

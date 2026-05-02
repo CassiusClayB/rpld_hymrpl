@@ -45,7 +45,7 @@ cp "${HYMRPL_DIR}/process.c" "${RPLD_DIR}/process.c"
 echo "[6/6] Aplicando patches no dag.c e config.c..."
 
 # --- dag.c: adicionar node_class init ---
-sed -i 's/dag->mop = mop;/dag->mop = mop;\n\tdag->node_class = HYMRPL_CLASS_S;  \/* HyMRPL: default storing-like *\//' \
+sed -i 's/dag->mop = mop;/dag->mop = mop;\n\tdag->node_class = HYMRPL_CLASS_S;  \/* HyMRPL: default storing-like *\/\n\tdag->parent_last_seen = ev_now(EV_DEFAULT);  \/* HyMRPL: avoid false liveness timeout *\//' \
     "${RPLD_DIR}/dag.c"
 
 # --- dag.c: substituir switch no dag_build_dao ---

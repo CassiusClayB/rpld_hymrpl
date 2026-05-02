@@ -1,6 +1,6 @@
 #!/bin/bash
-# HyMRPL — Roda os 3 modos em sequência
-# Uso: sudo bash hymrpl_run_all.sh [runs]
+# HyMRPL — Runs all 3 modes in sequence
+# Usage: sudo bash hymrpl_run_all.sh [runs]
 
 RUNS=${1:-5}
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -15,7 +15,7 @@ for MODE in storing nonstoring hybrid; do
     echo "# MODE: $MODE"
     echo "##############################"
 
-    # Cleanup antes
+    # Cleanup before
     killall -9 rpld 2>/dev/null
     mn -c > /dev/null 2>&1
     sleep 3
@@ -24,7 +24,7 @@ for MODE in storing nonstoring hybrid; do
 
     echo "# $MODE finished"
 
-    # Cleanup depois
+    # Cleanup after
     killall -9 rpld 2>/dev/null
     mn -c > /dev/null 2>&1
     sleep 3

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-HyMRPL — Teste de Escalabilidade com 20 nós
+HyMRPL — Scalability Test with 20 nodes
 
-Topologia em árvore com 4 branches, profundidade máxima de 5 hops:
+Tree topology with 4 branches, maximum depth of 5 hops:
 
     sensor1 (Root, S)
     ├── sensor2 (S) ── sensor6 (N) ── sensor10 (N) ── sensor14 (N) ── sensor18 (N)
@@ -10,14 +10,14 @@ Topologia em árvore com 4 branches, profundidade máxima de 5 hops:
     ├── sensor4 (S) ── sensor8 (N) ── sensor12 (S) ── sensor16 (N) ── sensor20 (N)
     └── sensor5 (N) ── sensor9 (N) ── sensor13 (S) ── sensor17 (N)
 
-Métricas coletadas:
-  - Tempo de convergência (até o nó mais distante responder)
-  - PDR e latência para nós a 1, 2, 3, 4 e 5 hops
-  - CPU e memória do root
-  - Contagem de rotas SRH e hop-by-hop
-  - Mensagens DIO capturadas no root (15s)
+Collected metrics:
+  - Convergence time (until the farthest node responds)
+  - PDR and latency for nodes at 1, 2, 3, 4 and 5 hops
+  - Root CPU and memory
+  - SRH and hop-by-hop route count
+  - DIO messages captured at root (15s)
 
-Uso: sudo python3 hymrpl_scalability_20.py [--runs 3] [--modes storing nonstoring hybrid]
+Usage: sudo python3 hymrpl_scalability_20.py [--runs 3] [--modes storing nonstoring hybrid]
 """
 
 import time, re, csv, os, sys, statistics, subprocess
@@ -48,18 +48,18 @@ LINKS = [
     (13, 17), (14, 18), (15, 19),          # 5-hop
 ]
 
-# Classe por nó no modo hybrid: nós intermediários com recursos = S, folhas/restritos = N
+# Class per node in hybrid mode: intermediate nodes with resources = S, leaf/constrained = N
 HYBRID_CLASSES = {}
 for i in range(NUM_NODES):
     name = 'sensor{}'.format(i + 1)
     if i == 0:
         HYBRID_CLASSES[name] = 'S'  # root
     elif i in (1, 2, 3, 11, 12):
-        HYBRID_CLASSES[name] = 'S'  # intermediários com recursos
+        HYBRID_CLASSES[name] = 'S'  # intermediate nodes with resources
     else:
-        HYBRID_CLASSES[name] = 'N'  # folhas ou restritos
+        HYBRID_CLASSES[name] = 'N'  # leaf or constrained nodes
 
-# Pares de teste: root -> nós a diferentes profundidades + upward do mais distante
+# Test pairs: root -> nodes at different depths + upward from farthest
 TEST_PAIRS = [
     (0, 1, "1-hop"),   # root -> sensor2
     (0, 5, "2-hop"),   # root -> sensor6
@@ -109,7 +109,7 @@ def gen_config(node, mode, node_class="S"):
 
 
 def create_topology():
-    """Cria topologia em árvore com 20 nós e 4 branches."""
+    """Creates tree topology with 20 nodes and 4 branches."""
     net = Mininet_wifi()
     sensors = []
     for i in range(NUM_NODES):
@@ -128,11 +128,11 @@ def create_topology():
 
     net.build()
 
-    # Espera interfaces ficarem prontas (com 20 nós, precisa de mais tempo)
+    # Wait for interfaces to be ready (with 20 nodes, needs more time)
     info("  Waiting 15s for all interfaces to come up...\n")
     time.sleep(15)
 
-    # Verifica se todas as interfaces existem
+    # Check if all interfaces exist
     ready = 0
     for s in sensors:
         iface = get_iface_name(s)
@@ -147,7 +147,7 @@ def create_topology():
 
 
 def wait_iface_ready(sensor, timeout=20):
-    """Espera a interface pan0 do sensor ficar disponível."""
+    """Waits for the sensor's pan0 interface to become available."""
     iface = get_iface_name(sensor)
     for _ in range(timeout):
         out = sensor.cmd('ip link show {} 2>/dev/null'.format(iface))
@@ -158,8 +158,8 @@ def wait_iface_ready(sensor, timeout=20):
 
 
 def start_rpld(sensors, mode):
-    """Inicia rpld com delays escalonados por profundidade, verificando interfaces."""
-    # Organiza nós por profundidade (BFS)
+    """Starts rpld with staggered delays by depth, checking interfaces."""
+    # Organize nodes by depth (BFS)
     depth = {0: 0}
     children = {i: [] for i in range(NUM_NODES)}
     for p, c in LINKS:
@@ -171,7 +171,7 @@ def start_rpld(sensors, mode):
         nodes_at_depth = [i for i, dd in depth.items() if dd == d]
         for idx in nodes_at_depth:
             s = sensors[idx]
-            # Verifica se a interface existe antes de iniciar
+            # Check if interface exists before starting
             if not wait_iface_ready(s, timeout=10):
                 info("  WARNING: {} interface not ready, starting rpld anyway\n".format(s.name))
             cls = HYBRID_CLASSES.get(s.name, 'S') if mode == 'hybrid' else 'S'
@@ -179,9 +179,9 @@ def start_rpld(sensors, mode):
             s.cmd('rpld -C {} -m stderr -d 3 > /tmp/rpld_{}.log 2>&1 &'.format(
                 conf, s.name))
         if d == 0:
-            time.sleep(5)  # root precisa de mais tempo
+            time.sleep(5)  # root needs more time
         else:
-            time.sleep(3)  # mais tempo entre camadas com 20 nós
+            time.sleep(3)  # more time between layers with 20 nodes
 
 
 def stop_rpld(sensors):
@@ -266,13 +266,13 @@ def measure_cpu_mem(sensor):
 
 
 def count_dio_messages(sensor, duration=15):
-    """Captura DIOs no root por N segundos."""
+    """Captures DIOs at root for N seconds."""
     iface = get_iface_name(sensor)
     pcap = '/tmp/dio_count_{}.pcap'.format(sensor.name)
     sensor.cmd('timeout {} tcpdump -i {} -w {} icmp6 2>/dev/null &'.format(
         duration, iface, pcap))
     time.sleep(duration + 2)
-    # Conta DIOs (ICMPv6 code 1 dentro de type 155)
+    # Counts DIOs (ICMPv6 code 1 within type 155)
     try:
         out = subprocess.check_output(
             'tshark -r {} -Y "icmpv6.type == 155 && icmpv6.code == 1" '
@@ -284,7 +284,7 @@ def count_dio_messages(sensor, duration=15):
 
 
 def check_full_convergence(sensors):
-    """Verifica quantos nós têm endereço global (indicador de convergência)."""
+    """Checks how many nodes have a global address (convergence indicator)."""
     count = 0
     for s in sensors:
         if get_global_addr(s):
@@ -304,12 +304,12 @@ def run_single(sensors, mode, run_id, runs_total):
     start_time = time.time()
     start_rpld(sensors, mode)
 
-    # Espera o nó mais distante (sensor18, idx=17) obter endereço
+    # Wait for the farthest node (sensor18, idx=17) to get an address
     info("  Waiting for farthest node (sensor18) global address...\n")
     farthest_addr = wait_for_global_addr(sensors[17])
     if not farthest_addr:
         info("  FAIL: sensor18 never got a global address\n")
-        # Verifica quantos convergiram
+        # Check how many converged
         converged = check_full_convergence(sensors)
         info("  Converged nodes: {}/{}\n".format(converged, NUM_NODES))
         results["convergence_s"] = -1
@@ -318,7 +318,7 @@ def run_single(sensors, mode, run_id, runs_total):
 
     info("  sensor18 got address: {}\n".format(farthest_addr))
 
-    # Mede convergência end-to-end
+    # Measure end-to-end convergence
     conv = wait_for_convergence(sensors[0], farthest_addr)
     if conv < 0:
         info("  FAIL: root cannot reach sensor18\n")
@@ -334,16 +334,16 @@ def run_single(sensors, mode, run_id, runs_total):
     info("  Convergence: {}s ({}/{} nodes)\n".format(
         results["convergence_s"], converged, NUM_NODES))
 
-    # Estabilização
+    # Stabilization
     info("  Stabilizing (15s)...\n")
     time.sleep(15)
 
-    # Coleta endereços
+    # Collect addresses
     addrs = {}
     for s in sensors:
         addrs[s.name] = get_global_addr(s)
 
-    # PDR/Latência por profundidade
+    # PDR/Latency by depth
     for src_idx, dst_idx, desc in TEST_PAIRS:
         src = sensors[src_idx]
         dst = sensors[dst_idx]
@@ -358,7 +358,7 @@ def run_single(sensors, mode, run_id, runs_total):
         results["{}_lat_avg".format(key)] = round(m["lat_avg"], 3)
         results["{}_lat_p95".format(key)] = round(m["lat_p95"], 3)
 
-    # PDR agregado: root -> todos os nós
+    # Aggregate PDR: root -> all nodes
     info("  Measuring aggregate PDR (root -> all nodes)...\n")
     total_tx, total_rx = 0, 0
     for i in range(1, NUM_NODES):
@@ -374,16 +374,16 @@ def run_single(sensors, mode, run_id, runs_total):
     info("  Aggregate PDR: {:.1f}% ({}/{})\n".format(
         results["aggregate_pdr"], total_rx, total_tx))
 
-    # Rotas no root
+    # Routes at root
     routes = count_routes(sensors[0])
     results.update(routes)
 
-    # CPU/Mem do root
+    # Root CPU/Mem
     cpu, mem = measure_cpu_mem(sensors[0])
     results["root_cpu"] = cpu
     results["root_mem_mb"] = round(mem, 2)
 
-    # CPU/Mem média dos nós
+    # Average CPU/Mem of nodes
     all_cpu, all_mem = [], []
     for s in sensors:
         c, m = measure_cpu_mem(s)
@@ -392,7 +392,7 @@ def run_single(sensors, mode, run_id, runs_total):
     results["avg_cpu"] = round(statistics.mean(all_cpu), 2) if all_cpu else 0
     results["avg_mem_mb"] = round(statistics.mean(all_mem), 2) if all_mem else 0
 
-    # DIO count no root
+    # DIO count at root
     info("  Counting DIO messages (15s)...\n")
     dio = count_dio_messages(sensors[0], duration=15)
     results["root_dio_15s"] = dio
@@ -466,7 +466,7 @@ def main():
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     all_results = []
 
-    # Cria topologia UMA vez e reutiliza pra todos os modos
+    # Create topology ONCE and reuse for all modes
     info("*** Creating topology (persistent for all modes)\n")
     net, sensors = create_topology()
 
@@ -486,14 +486,14 @@ def main():
                 all_results.append({"mode": mode, "run": run_id,
                                     "num_nodes": NUM_NODES, "convergence_s": -1})
 
-    # Salva resultados ANTES de parar a rede
+    # Save results BEFORE stopping the network
     stop_rpld(sensors)
     csv_path = os.path.join(RESULTS_DIR, "scalability_{}_{}.csv".format(NUM_NODES, ts))
     save_csv(all_results, csv_path)
     print_summary(all_results)
     print("\nResults: {}".format(csv_path))
 
-    # net.stop() pode matar o processo, então é a última coisa
+    # net.stop() may kill the process, so it's the last thing
     info("\n*** Results saved. Stopping network...\n")
     try:
         net.stop()
