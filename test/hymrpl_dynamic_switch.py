@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """
-HyMRPL — Dynamic class switch experiment via FIFO.
+HyMRPL — Dynamic class switch experiment via Secure FIFO.
 
-Demonstrates that HyMRPL adapts forwarding at runtime:
+Demonstrates that HyMRPL adapts the forwarding at runtime:
   1. sensor5 starts as Class N (non-storing-like)
   2. Measures latency root→sensor5 and local sensor4→sensor5
-  3. Sends "CLASS_S" to sensor5's FIFO
+  3. Sends authenticated "CLASS_S" via hymrpl_cmd
   4. Waits for reconvergence
   5. Measures latency again (behavior should change)
   6. Switches back to CLASS_N and measures again
 
+Compatible with rpld + integrated adaptive module + secure FIFO.
+The test manipulates /tmp/hymrpl_battery so that the adaptive engine
+does not revert the externally defined class.
+
 Topology:
     sensor1 (Root, S)
-       /        \
+       /        \\
   sensor2(N)   sensor3(S)
                   |
                sensor4(S)
@@ -181,10 +185,17 @@ def measure_pdr_latency(src, dst_addr, count=30):
     return {"pdr": pdr, "lat_avg": lat_avg, "lat_p95": percentile(lat_values, 95)}
 
 
+def set_battery(sensor, level):
+    """Set simulated battery level to influence adaptive engine (per-interface)."""
+    iface = get_iface_name(sensor)
+    sensor.cmd('echo {} > /tmp/hymrpl_battery_{}'.format(level, iface))
+
+
 def send_fifo_cmd(sensor, cmd_str):
-    """Sends command to the rpld FIFO running in the sensor's namespace."""
-    sensor.cmd('echo "{}" > {} 2>/dev/null'.format(cmd_str, FIFO_PATH))
-    info("  FIFO: sent '{}' to {}\n".format(cmd_str, sensor.name))
+    """Send authenticated command via hymrpl_cmd."""
+    output = sensor.cmd('hymrpl_cmd {} 2>&1'.format(cmd_str))
+    info("  FIFO: sent '{}' to {} (auth) | {}\n".format(
+        cmd_str, sensor.name, output.strip()[:60]))
 
 
 def count_routes(sensor):
@@ -192,12 +203,19 @@ def count_routes(sensor):
     return {"srh": output.count('encap rpl'), "via": output.count('via fe80')}
 
 
+def count_root_routes(root_sensor):
+    """Count SRH (encap rpl) and via routes on root — shows forwarding mode."""
+    output = root_sensor.cmd('ip -6 route show')
+    return {"srh": output.count('encap rpl'), "via": output.count('via fe80'),
+            "total": output.count('\n')}
+
+
 def run_experiment(sensors, run_id):
     """
     Phases:
-      A: sensor5 as Class N (initial state)
-      B: switch sensor5 to Class S via FIFO
-      C: switch sensor5 back to Class N via FIFO
+      A: sensor5 as Class N (initial state, low battery → adaptive keeps N)
+      B: switch sensor5 to Class S via authenticated FIFO (high battery → adaptive keeps S)
+      C: switch sensor5 back to Class N via authenticated FIFO (low battery → adaptive keeps N)
     """
     info("\n=== DYNAMIC SWITCH | Run {} ===\n".format(run_id))
     results = {"run": run_id}
@@ -205,6 +223,9 @@ def run_experiment(sensors, run_id):
     stop_rpld(sensors)
     clean_state(sensors)
     time.sleep(3)
+
+    # Set battery LOW so adaptive engine keeps sensor5 as N initially
+    set_battery(sensors[4], 10)
 
     start_time = time.time()
     start_rpld(sensors)
@@ -226,12 +247,15 @@ def run_experiment(sensors, run_id):
 
     results["convergence_s"] = round(time.time() - start_time, 2)
     info("  Convergence: {}s\n".format(results["convergence_s"]))
-    time.sleep(10)
+
+    # Wait for adaptive engine to stabilize (it evaluates every 5s, needs 3 cycles)
+    info("  Waiting for adaptive stabilization (20s)...\n")
+    time.sleep(20)
 
     # ============================================================
-    # PHASE A: sensor5 = Class N (initial state)
+    # PHASE A: sensor5 = Class N (battery low → adaptive keeps N)
     # ============================================================
-    info("\n  --- PHASE A: sensor5 = Class N (initial) ---\n")
+    info("\n  --- PHASE A: sensor5 = Class N (battery=10%) ---\n")
 
     # root → sensor5
     m = measure_pdr_latency(sensors[0], addr5, count=50)
@@ -260,23 +284,31 @@ def run_experiment(sensors, run_id):
     # Routes before switch
     r4 = count_routes(sensors[3])
     r5 = count_routes(sensors[4])
+    r1 = count_root_routes(sensors[0])
     results["A_s4_via"] = r4["via"]
     results["A_s5_via"] = r5["via"]
     results["A_s5_srh"] = r5["srh"]
-    info("    Routes: s4 via={} | s5 via={} srh={}\n".format(r4["via"], r5["via"], r5["srh"]))
+    results["A_root_srh"] = r1["srh"]
+    results["A_root_via"] = r1["via"]
+    info("    Routes: s4 via={} | s5 via={} srh={} | root srh={} via={}\n".format(
+        r4["via"], r5["via"], r5["srh"], r1["srh"], r1["via"]))
 
     # ============================================================
     # PHASE B: Switch sensor5 to Class S
+    # Set battery HIGH so adaptive engine agrees with S
     # ============================================================
     info("\n  --- PHASE B: Switching sensor5 N → S ---\n")
-    send_fifo_cmd(sensors[4], "CLASS_S")
+
+    # Set battery high BEFORE sending command so adaptive doesn't revert
+    set_battery(sensors[4], 100)
     time.sleep(2)
 
-    # Trigger DAO re-send: sensor5 needs to re-announce itself
-    # The rpld should handle this internally after class change,
-    # but we wait for routes to update
-    info("  Waiting for route update (15s)...\n")
-    time.sleep(15)
+    # Send authenticated command
+    send_fifo_cmd(sensors[4], "CLASS_S")
+
+    # Wait for route update and DAO propagation
+    info("  Waiting for route update (20s)...\n")
+    time.sleep(20)
 
     # root → sensor5
     m = measure_pdr_latency(sensors[0], addr5, count=50)
@@ -304,19 +336,35 @@ def run_experiment(sensors, run_id):
     # Routes after switch to S
     r4 = count_routes(sensors[3])
     r5 = count_routes(sensors[4])
+    r1 = count_root_routes(sensors[0])
     results["B_s4_via"] = r4["via"]
     results["B_s5_via"] = r5["via"]
     results["B_s5_srh"] = r5["srh"]
-    info("    Routes: s4 via={} | s5 via={} srh={}\n".format(r4["via"], r5["via"], r5["srh"]))
+    results["B_root_srh"] = r1["srh"]
+    results["B_root_via"] = r1["via"]
+    info("    Routes: s4 via={} | s5 via={} srh={} | root srh={} via={}\n".format(
+        r4["via"], r5["via"], r5["srh"], r1["srh"], r1["via"]))
 
     # ============================================================
     # PHASE C: Switch sensor5 back to Class N
+    # Set battery LOW so adaptive engine agrees with N
     # ============================================================
     info("\n  --- PHASE C: Switching sensor5 S → N ---\n")
-    send_fifo_cmd(sensors[4], "CLASS_N")
+
+    # Set battery low BEFORE sending command
+    set_battery(sensors[4], 10)
     time.sleep(2)
-    info("  Waiting for route update (15s)...\n")
-    time.sleep(15)
+
+    # Need to wait for rate limit (10s min between switches)
+    info("  Waiting for rate limit cooldown (12s)...\n")
+    time.sleep(12)
+
+    # Send authenticated command
+    send_fifo_cmd(sensors[4], "CLASS_N")
+
+    # Wait for route update
+    info("  Waiting for route update (20s)...\n")
+    time.sleep(20)
 
     # root → sensor5
     m = measure_pdr_latency(sensors[0], addr5, count=50)
@@ -344,10 +392,14 @@ def run_experiment(sensors, run_id):
     # Routes after switch back to N
     r4 = count_routes(sensors[3])
     r5 = count_routes(sensors[4])
+    r1 = count_root_routes(sensors[0])
     results["C_s4_via"] = r4["via"]
     results["C_s5_via"] = r5["via"]
     results["C_s5_srh"] = r5["srh"]
-    info("    Routes: s4 via={} | s5 via={} srh={}\n".format(r4["via"], r5["via"], r5["srh"]))
+    results["C_root_srh"] = r1["srh"]
+    results["C_root_via"] = r1["via"]
+    info("    Routes: s4 via={} | s5 via={} srh={} | root srh={} via={}\n".format(
+        r4["via"], r5["via"], r5["srh"], r1["srh"], r1["via"]))
 
     return results
 
@@ -378,9 +430,9 @@ def print_summary(all_results):
     print("Convergence: {:.2f}s\n".format(avg("convergence_s")))
 
     phases = [
-        ("A", "sensor5 = N (initial)"),
-        ("B", "sensor5 = S (after switch)"),
-        ("C", "sensor5 = N (reverted)"),
+        ("A", "sensor5 = N (battery=10%)"),
+        ("B", "sensor5 = S (battery=100%, FIFO auth)"),
+        ("C", "sensor5 = N (battery=10%, FIFO auth)"),
     ]
     print("{:<12} {:>12} {:>12} {:>12} {:>8} {:>8}".format(
         "Phase", "root→s5", "s4→s5", "s5→root", "s4 via", "s5 via"))
@@ -421,6 +473,12 @@ def main():
     os.makedirs(RESULTS_DIR, exist_ok=True)
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     all_results = []
+
+    # Ensure token exists for authenticated FIFO
+    if not os.path.exists('/etc/hymrpl/fifo.token'):
+        info("*** Generating FIFO authentication token...\n")
+        os.system('mkdir -p /etc/hymrpl')
+        os.system('hymrpl_cmd --gen-token')
 
     info("*** Creating topology\n")
     net, sensors = create_topology()

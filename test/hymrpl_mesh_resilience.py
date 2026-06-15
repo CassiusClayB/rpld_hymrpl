@@ -8,7 +8,7 @@ Complete scenario with:
   - CPU and memory per node (energy proxy)
   - Mobility emulation via tc netem (progressive degradation)
   - Packet capture (DIO/DAO/SRH)
-  - Churn (node departure/arrival)
+  - Churn (nodes leaving/joining)
   - Reconvergence via alternative paths
 
 Mesh topology (15 nodes):
@@ -31,14 +31,14 @@ Phases (12 phases of increasing complexity):
   0.  Baseline: all active, reference metrics
   1.  Light mobility: 10% loss on sensor5 via tc netem
   2.  Severe mobility: 30% loss on sensor5
-  3.  Churn: kills sensor5, nodes reconverge via sensor6/7
+  3.  Churn: drops sensor5, nodes reconverge via sensor6/7
   4a. Restores sensor5, waits for reconvergence
-  4b. Kills sensor7, nodes reconverge via restored sensor5
+  4b. Drops sensor7, nodes reconverge via sensor5
   5a. Restores sensor7, waits for reconvergence
-  5b. Mobility + churn: 20% loss on sensor8, kills sensor3
+  5b. Mobility + churn: 20% loss on sensor8, drops sensor3
   6.  Restores sensor3, removes loss
-  7.  Double churn: kills sensor9 and sensor10 simultaneously
-  8.  Restores all
+  7.  Double churn: drops sensor9 and sensor10 simultaneously
+  8.  Restores everything
   9.  Final check: confirms complete reconvergence
 
 Usage: sudo python3 hymrpl_mesh_resilience.py [--runs 3] [--modes storing nonstoring hybrid]
@@ -49,6 +49,10 @@ from datetime import datetime
 from mininet.log import setLogLevel, info
 from mn_wifi.sixLoWPAN.link import LoWPAN
 from mn_wifi.net import Mininet_wifi
+
+# HyMRPL: ensure adaptive engine agrees with configured classes
+import sys; sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from hymrpl_helpers import setup_battery_for_topology, ensure_token
 
 PREFIX = "fd3c:be8a:173f:8e80"
 DODAGID = PREFIX + "::1"
@@ -111,7 +115,7 @@ PHASES = [
     },
     {
         "name": "3_churn_kill5",
-        "desc": "Kills sensor5 — nodes reconverge via sensor6/7",
+        "desc": "Drops sensor5 — nodes reconverge via sensor6/7",
         "kill": [4], "restore": [], "loss": [], "clear_loss": [4],
     },
     {
@@ -121,7 +125,7 @@ PHASES = [
     },
     {
         "name": "4b_kill7",
-        "desc": "Kills sensor7 — nodes reconverge via restored sensor5",
+        "desc": "Drops sensor7 — nodes reconverge via restored sensor5",
         "kill": [6], "restore": [], "loss": [], "clear_loss": [],
     },
     {
@@ -131,7 +135,7 @@ PHASES = [
     },
     {
         "name": "5b_mobility_churn",
-        "desc": "20% loss on sensor8 + kills sensor3",
+        "desc": "20% loss on sensor8 + drops sensor3",
         "kill": [2], "restore": [], "loss": [(7, 20)], "clear_loss": [],
     },
     {
@@ -141,7 +145,7 @@ PHASES = [
     },
     {
         "name": "7_churn_double",
-        "desc": "Kills sensor9 and sensor10 simultaneously",
+        "desc": "Drops sensor9 and sensor10 simultaneously",
         "kill": [8, 9], "restore": [], "loss": [], "clear_loss": [],
     },
     {
@@ -216,7 +220,7 @@ def create_topology():
 
 
 def start_rpld(sensors, mode, skip_set=None):
-    """Starts rpld in BFS depth order (bidirectional)."""
+    """Start rpld in BFS depth order (bidirectional)."""
     if skip_set is None:
         skip_set = set()
     depth = {0: 0}
@@ -250,11 +254,11 @@ def stop_rpld(sensors):
 
 
 def kill_node(sensor):
-    """Simulates node departure: kills rpld and applies 100% packet loss.
-    Does NOT bring down the interface to preserve the 802.15.4/6LoWPAN state."""
+    """Simulates the node leaving: kills rpld and applies 100% packet loss.
+    Does NOT bring the interface down, to preserve the 802.15.4/6LoWPAN state."""
     sensor.cmd('killall -9 rpld 2>/dev/null')
     iface = get_iface_name(sensor)
-    # Flush routes so it doesn't serve as a relay
+    # Flush routes so it does not act as a relay
     sensor.cmd('ip -6 route flush proto static 2>/dev/null')
     sensor.cmd('ip -6 route flush proto boot 2>/dev/null')
     # 100% loss = node completely isolated from the network
@@ -264,13 +268,13 @@ def kill_node(sensor):
 
 
 def restore_node(sensor, mode, sensors=None, killed_set=None):
-    """Restores a node and restarts rpld on all alive nodes.
+    """Restores a node and restarts rpld on all live nodes.
     Necessary because the rpld event loop stops processing events
     after ~30s (rpld/libev bug with 6LoWPAN interfaces)."""
     iface = get_iface_name(sensor)
     sensor_idx = int(sensor.name.replace('sensor', '')) - 1
 
-    # Remove node isolation
+    # Remove the node's isolation
     sensor.cmd('killall -9 rpld 2>/dev/null')
     sensor.cmd('tc qdisc del dev {} root 2>/dev/null'.format(iface))
     sensor.cmd('ip -6 route flush proto static 2>/dev/null')
@@ -279,7 +283,7 @@ def restore_node(sensor, mode, sensors=None, killed_set=None):
     sensor.cmd('ip -6 addr flush dev {} scope global 2>/dev/null'.format(iface))
     sensor.cmd('ip link set {} up 2>/dev/null'.format(iface))
     time.sleep(1)
-    # Restores original link-local
+    # Restore the original link-local address
     original_ll = 'fe80::{:x}'.format(sensor_idx + 1)
     current_ll = sensor.cmd(
         'ip -6 addr show dev {} scope link 2>/dev/null'.format(iface))
@@ -289,21 +293,21 @@ def restore_node(sensor, mode, sensors=None, killed_set=None):
             original_ll, iface))
     info("    RESTORED {} (interface ready)\n".format(sensor.name))
 
-    # Restart rpld on all alive nodes to force reconvergence
+    # Restart rpld on all live nodes to force reconvergence
     # (the rpld event loop stops after ~30s, so neighbors
-    # don't process DIS or emit DIO without restart)
+    # do not process DIS nor emit DIO without a restart)
     if sensors is not None:
         ks = killed_set if killed_set is not None else set()
         ks_after = ks - {sensor_idx}
 
-        # Stop rpld on all alive nodes
+        # Stop rpld on all live nodes
         for i, s in enumerate(sensors):
             if i in ks_after:
                 continue
             s.cmd('killall -9 rpld 2>/dev/null')
         time.sleep(1)
 
-        # Clean routing state (but do NOT bring down interfaces)
+        # Clear routing state (but do NOT bring interfaces down)
         for i, s in enumerate(sensors):
             if i in ks_after:
                 continue
@@ -313,12 +317,14 @@ def restore_node(sensor, mode, sensors=None, killed_set=None):
             s.cmd('ip -6 addr flush dev {} scope global 2>/dev/null'.format(s_iface))
 
         # Restart rpld in BFS order
+
+        setup_battery_for_topology(sensors, HYBRID_CLASSES)
         start_rpld(sensors, mode, skip_set=ks_after)
     else:
         cls = HYBRID_CLASSES.get(sensor.name, 'S') if mode == 'hybrid' else 'S'
         conf = gen_config(sensor, mode, cls)
         sensor.cmd('rpld -C {} -m stderr -d 3 > /tmp/rpld_{}.log 2>&1 &'.format(
-            conf, sensor.name))
+        conf, sensor.name))
 
 
 def add_packet_loss(sensor, loss_pct):
@@ -406,7 +412,7 @@ def get_hop_count(src, dst_addr):
 
 
 def measure_cpu_mem(sensor):
-    """Measures rpld CPU and memory usage."""
+    """Measure CPU and memory of rpld."""
     output = sensor.cmd('ps -o %cpu,%mem,rss -C rpld --no-headers 2>/dev/null')
     if not output.strip():
         pid = sensor.cmd('pgrep -f rpld 2>/dev/null').strip().split('\n')[0].strip()
@@ -414,7 +420,7 @@ def measure_cpu_mem(sensor):
             output = sensor.cmd('ps -o %cpu,%mem,rss -p {} --no-headers 2>/dev/null'.format(pid))
     if not output.strip():
         return 0, 0
-    # Gets first valid line (may have multiple if ps returns more than one)
+    # Take the first valid line (there may be several if ps returns more than one)
     for line in output.strip().split('\n'):
         parts = line.strip().split()
         if len(parts) >= 3:
@@ -432,7 +438,7 @@ def count_routes(sensor):
 
 
 def capture_packets(sensor, duration=10):
-    """Captures packets for N seconds and counts DIO, DAO and SRH."""
+    """Capture packets for N seconds and count DIO, DAO and SRH."""
     iface = get_iface_name(sensor)
     pcap = '/tmp/pcap_{}_{}.pcap'.format(sensor.name, int(time.time()))
 
@@ -474,17 +480,17 @@ def capture_packets(sensor, duration=10):
 
 
 def measure_phase(sensors, root, phase_name, killed_set, mode):
-    """Collects all metrics for a phase."""
+    """Collect all metrics for a phase."""
     info("  [MEASURE] Phase: {}\n".format(phase_name))
     results = {"phase": phase_name}
 
-    # Packet capture at root (DIO/DAO)
+    # Packet capture at the root (DIO/DAO)
     info("    Capturing packets (10s)...\n")
     pcap_root = capture_packets(root, duration=10)
     results["root_dio_10s"] = pcap_root["dio"]
     results["root_dao_10s"] = pcap_root["dao"]
 
-    # Capture SRH at active intermediate node
+    # Capture SRH on an active intermediate node
     srh_node_idx = 1 if 1 not in killed_set else (3 if 3 not in killed_set else None)
     if srh_node_idx is not None:
         pcap_mid = capture_packets(sensors[srh_node_idx], duration=10)
@@ -492,7 +498,7 @@ def measure_phase(sensors, root, phase_name, killed_set, mode):
     else:
         results["mid_srh_10s"] = 0
 
-    # Global addresses of alive nodes
+    # Global addresses of live nodes
     addrs = {}
     for i, s in enumerate(sensors):
         if i in killed_set:
@@ -547,7 +553,7 @@ def measure_phase(sensors, root, phase_name, killed_set, mode):
     results["hops_max"] = max(hop_counts) if hop_counts else 0
     results["hops_min"] = min(hop_counts) if hop_counts else 0
 
-    # Routes at root
+    # Routes at the root
     routes = count_routes(root)
     results["routes_srh"] = routes["routes_srh"]
     results["routes_via"] = routes["routes_via"]
@@ -596,9 +602,12 @@ def run_single(sensors, mode, run_id, runs_total):
         s.cmd('ip link set {} up 2>/dev/null'.format(iface))
     time.sleep(2)
 
+    # HyMRPL: set battery so adaptive engine agrees with configured classes
+    setup_battery_for_topology(sensors, HYBRID_CLASSES)
+
     start_rpld(sensors, mode)
 
-    # Wait for convergence to the farthest node
+    # Wait for convergence up to the farthest node
     info("  Waiting for convergence (sensor15)...\n")
     farthest_addr = wait_for_global_addr(sensors[14])
     if farthest_addr:
@@ -613,7 +622,7 @@ def run_single(sensors, mode, run_id, runs_total):
     info("  Stabilizing (20s)...\n")
     time.sleep(20)
 
-    # Execute phases
+    # Run phases
     killed_set = set()
 
     for phase in PHASES:
@@ -626,7 +635,8 @@ def run_single(sensors, mode, run_id, runs_total):
             restore_node(sensors[idx], mode, sensors=sensors, killed_set=killed_set)
             killed_set.discard(idx)
 
-        # 2. Remove loss        for idx in phase["clear_loss"]:
+        # 2. Remove loss
+        for idx in phase["clear_loss"]:
             if idx not in killed_set:
                 clear_packet_loss(sensors[idx])
 
@@ -634,7 +644,7 @@ def run_single(sensors, mode, run_id, runs_total):
         for idx, pct in phase["loss"]:
             add_packet_loss(sensors[idx], pct)
 
-        # 4. Kill nodes last
+        # 4. Drop nodes last
         for idx in phase["kill"]:
             kill_node(sensors[idx])
             killed_set.add(idx)

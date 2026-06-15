@@ -14,6 +14,10 @@ from mininet.log import setLogLevel, info
 from mn_wifi.sixLoWPAN.link import LoWPAN
 from mn_wifi.net import Mininet_wifi
 
+# HyMRPL: ensure adaptive engine agrees with configured classes
+import sys; sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from hymrpl_helpers import setup_battery_for_topology, ensure_token
+
 PREFIX = "fd3c:be8a:173f:8e80"
 DODAGID = PREFIX + "::1"
 RESULTS_DIR = "/tmp/hymrpl_results"
@@ -88,7 +92,7 @@ def start_rpld(sensors, mode):
     cls = HYBRID_CLASSES.get(root.name, 'S') if mode == 'hybrid' else 'S'
     conf = gen_config(root, mode, cls)
     root.cmd('nohup rpld -C {} -m stderr -d 3 > /tmp/rpld_{}.log 2>&1 &'.format(conf, root.name))
-    time.sleep(3)  # root needs to be stable before children
+    time.sleep(3)  # root needs to be stable before the children
 
     # Start 1-hop nodes (sensor2, sensor3)
     for s in [sensors[1], sensors[2]]:
@@ -123,7 +127,7 @@ def flush_routes(sensors):
         # Flush all IPv6 routes except link-local and kernel routes
         s.cmd('ip -6 route flush proto static 2>/dev/null')
         s.cmd('ip -6 route flush proto boot 2>/dev/null')
-        s.cmd('ip -6 route flush proto 99 2>/dev/null')  # rpld may use custom proto
+        s.cmd('ip -6 route flush proto 99 2>/dev/null')  # rpld may use a custom proto
 
 
 def get_global_addr(sensor):
@@ -230,6 +234,9 @@ def run_single(sensors, mode, run_id, runs_total):
 
     # Start rpld with staggered delays and measure convergence
     start_time = time.time()
+    # HyMRPL: set battery so adaptive engine agrees with configured classes
+    setup_battery_for_topology(sensors, HYBRID_CLASSES)
+
     start_rpld(sensors, mode)
 
     # Wait for sensor5 (farthest node) to get a global address
@@ -390,8 +397,8 @@ def gen_latex(all_results, path):
         ("Latency 2-hop (ms)", "1to4_lat_avg"),
         ("Latency 3-hop (ms)", "1to5_lat_avg"),
         ("Lat. p95 3-hop (ms)", "1to5_lat_p95"),
-        ("Routes SRH", "routes_srh"),
-        ("Routes via", "routes_via"),
+        ("SRH routes", "routes_srh"),
+        ("via routes", "routes_via"),
     ]
     for label, key in metrics:
         row = label
@@ -475,9 +482,9 @@ def main():
             info("WARNING: net.stop() raised: {}\n".format(e))
         time.sleep(3)
 
-        # Cleanup — ensures everything is killed
+        # Manual cleanup — ensures everything died
         subprocess.run('killall -9 rpld 2>/dev/null', shell=True)
-        subprocess.run('mn -c 2>/dev/null', shell=True, capture_output=True)
+        subprocess.run('bash /home/wifi/rpld_hymrpl/test/hymrpl_cleanup.sh', shell=True, capture_output=True)
         time.sleep(3)
         subprocess.run('modprobe -r mac802154_hwsim 2>/dev/null', shell=True)
         time.sleep(5)

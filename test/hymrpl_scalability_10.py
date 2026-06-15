@@ -9,12 +9,12 @@ Tree topology with 3 branches, maximum depth of 3 hops:
     ├── sensor3 (S) ── sensor6 (N) ── sensor9 (N)
     └── sensor4 (N) ── sensor7 (N) ── sensor10 (N)
 
-Collected metrics:
+Metrics collected:
   - Convergence time (until the farthest node responds)
   - PDR and latency for nodes at 1, 2 and 3 hops
-  - Root CPU and memory
-  - SRH and hop-by-hop route count
-  - DIO messages captured at root (15s)
+  - CPU and memory of the root
+  - Count of SRH and hop-by-hop routes
+  - DIO messages captured at the root (15s)
 
 Usage: sudo python3 hymrpl_scalability_10.py [--runs 3] [--modes storing nonstoring hybrid]
 """
@@ -25,6 +25,10 @@ from mininet.log import setLogLevel, info
 from mn_wifi.sixLoWPAN.link import LoWPAN
 from mn_wifi.net import Mininet_wifi
 
+# HyMRPL: ensure adaptive engine agrees with configured classes
+import sys; sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from hymrpl_helpers import setup_battery_for_topology, ensure_token
+
 PREFIX = "fd3c:be8a:173f:8e80"
 DODAGID = PREFIX + "::1"
 RESULTS_DIR = "/tmp/hymrpl_results"
@@ -34,7 +38,7 @@ NUM_NODES = 10
 CONVERGENCE_ADDR_TIMEOUT = 120
 CONVERGENCE_PING_TIMEOUT = 180
 
-# Topology: (parent_idx, child_idx) — indices 0-based
+# Topology: (parent_idx, child_idx) — 0-based indices
 # Branch 1: 0-1-4-7
 # Branch 2: 0-2-5-8
 # Branch 3: 0-3-6-9
@@ -52,7 +56,7 @@ for i in range(NUM_NODES):
     elif i in (1, 2):
         HYBRID_CLASSES[name] = 'S'  # intermediate nodes with resources
     else:
-        HYBRID_CLASSES[name] = 'N'  # leaf or constrained nodes
+        HYBRID_CLASSES[name] = 'N'  # leaves or constrained
 
 TEST_PAIRS = [
     (0, 1, "1-hop"),    # root -> sensor2
@@ -266,6 +270,9 @@ def run_single(sensors, mode, run_id, runs_total):
     time.sleep(3)
 
     start_time = time.time()
+    # HyMRPL: set battery so adaptive engine agrees with configured classes
+    setup_battery_for_topology(sensors, HYBRID_CLASSES)
+
     start_rpld(sensors, mode)
 
     # Wait for the farthest node (sensor8, idx=7) to get an address

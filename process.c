@@ -3,7 +3,7 @@
  *    Alexander Aring           <alex.aring@gmail.com>
  *
  *   HyMRPL extensions by Cassius Clay
- *   - MOP=6 hybrid mode: Classe S (storing-like) and Classe N (non-storing-like)
+ *   - MOP=6 hybrid mode: Class S (storing-like) and Class N (non-storing-like)
  *     coexist in the same DODAG. The node_class field determines local behavior.
  */
 
@@ -129,7 +129,7 @@ static void process_dio(int sock, struct iface *iface, const void *msg,
          * - Storing (MOP 2/3): send DAO to parent
          * - Non-Storing (MOP 1): send DAO to root (dodagid)
          * - Hybrid (MOP 6): always send DAO toward root so the root
-         *   has full topology visibility. Classe S nodes also install
+         *   has full topology visibility. Class S nodes also install
          *   local routes, but the DAO still reaches the root.
          */
         switch (dag->mop) {
@@ -143,10 +143,10 @@ static void process_dio(int sock, struct iface *iface, const void *msg,
         case RPL_DIO_HYBRID:
                 /*
                  * HyMRPL: In hybrid mode, send DAO to BOTH parent and root.
-                 * - DAO to parent: allows Classe S intermediate nodes to
+                 * - DAO to parent: allows Class S intermediate nodes to
                  *   install local downward routes (storing-like behavior).
                  * - DAO to root: allows the root to build the complete
-                 *   source routing tree for Classe N paths.
+                 *   source routing tree for Class N paths.
                  * This dual-DAO approach ensures both routing paradigms
                  * work simultaneously in the same DODAG.
                  */
@@ -282,8 +282,8 @@ static void process_dao(int sock, struct iface *iface, const void *msg,
          * Non-Storing (MOP 1): root builds source routing tree, installs SRH routes
          * Hybrid (MOP 6):
          *   - Root: build source routing tree for ALL targets in the DAO
-         *   - Classe S (non-root): install downward routes via Netlink (storing-like)
-         *   - Classe N (non-root): no local route installation
+         *   - Class S (non-root): install downward routes via Netlink (storing-like)
+         *   - Class N (non-root): no local route installation
          */
         switch (dag->mop) {
         case RPL_DIO_STORING_NO_MULTICAST:
@@ -319,7 +319,7 @@ static void process_dao(int sock, struct iface *iface, const void *msg,
                         /*
                          * Root: always use source routing tree.
                          * Process ALL targets from the DAO, not just the last one.
-                         * This is critical for Classe S nodes that aggregate
+                         * This is critical for Class S nodes that aggregate
                          * child targets into their DAO messages.
                          */
                         if (transit) {
@@ -343,7 +343,7 @@ static void process_dao(int sock, struct iface *iface, const void *msg,
                                      target_count);
                         }
                 } else if (dag->node_class == HYMRPL_CLASS_S) {
-                        /* Classe S (non-root): install local downward routes */
+                        /* Class S (non-root): install local downward routes */
                         list_for_each_entry(child, &dag->childs, list) {
                                 rc = nl_add_route_via(dag->iface->ifindex,
                                                       &child->addr, &child->from);
@@ -351,7 +351,7 @@ static void process_dao(int sock, struct iface *iface, const void *msg,
                                      rc, strerror(errno));
                         }
                 } else {
-                        /* Classe N (non-root): no local route installation */
+                        /* Class N (non-root): no local route installation */
                         flog(LOG_INFO, "HYMRPL class-N: skipping local route install");
                 }
                 break;

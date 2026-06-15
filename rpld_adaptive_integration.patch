@@ -1,0 +1,208 @@
+--- Integration patch: Adaptive Engine + Secure FIFO in rpld.c ---
+---
+--- This patch replaces the old rpld_fifo.c.patch with the new
+--- secure and adaptive version. Apply AFTER the base HyMRPL patches.
+---
+--- Dependencies added: libssl-dev (for HMAC-SHA256)
+---   apt install libssl-dev
+---   Add to meson.build: dependency('openssl')
+
+=== CHANGES TO rpld.c ===
+
+1. Replace the old FIFO includes/defines with:
+
+    #include "hymrpl_adaptive.h"
+
+    /* Global adaptive state (one per daemon instance) */
+    static struct hymrpl_adaptive g_adaptive;
+    static struct hymrpl_fifo_sec g_fifo_sec;
+    static bool g_adaptive_enabled = false;
+
+2. Remove the old hymrpl_check_fifo() function entirely.
+   It is replaced by hymrpl_fifo_sec_check() from hymrpl_adaptive.c.
+
+3. In main(), REPLACE the old FIFO initialization:
+
+    OLD:
+        unlink(HYMRPL_FIFO_PATH);
+        mkfifo(HYMRPL_FIFO_PATH, 0666);
+
+    NEW:
+        /* HyMRPL: initialize secure FIFO */
+        hymrpl_fifo_sec_init(&g_fifo_sec);
+
+        /* HyMRPL: initialize adaptive engine (only for non-root nodes) */
+        /* Check if any iface is NOT a dodag_root */
+        {
+                struct iface *iface_tmp;
+                list_for_each_entry(iface_tmp, &ifaces, list) {
+                        if (!iface_tmp->dodag_root) {
+                                g_adaptive_enabled = true;
+                                hymrpl_adaptive_init(&g_adaptive, loop);
+                                flog(LOG_INFO,
+                                     "HYMRPL: adaptive engine enabled "
+                                     "(non-root node)");
+                                break;
+                        }
+                }
+        }
+
+4. Add a new periodic timer callback for FIFO + adaptive checks:
+
+    static void hymrpl_periodic_cb(EV_P_ ev_timer *w, int revents)
+    {
+            /* Check secure FIFO for external commands */
+            int fifo_result = hymrpl_fifo_sec_check(&g_fifo_sec, &ifaces);
+            if (fifo_result >= 0) {
+                    flog(LOG_INFO,
+                         "HYMRPL: external FIFO command applied (class=%s)",
+                         fifo_result == HYMRPL_CLASS_S ? "S" : "N");
+                    /* External command overrides adaptive for this cycle */
+                    return;
+            }
+
+            /* If adaptive engine is enabled, check for recommendations */
+            if (!g_adaptive_enabled)
+                    return;
+
+            /* Get current class from first dag */
+            uint8_t current_class = HYMRPL_CLASS_S;
+            struct iface *iface;
+            struct rpl *rpl;
+            struct dag *dag;
+            list_for_each_entry(iface, &ifaces, list) {
+                    list_for_each_entry(rpl, &iface->rpls, list) {
+                            list_for_each_entry(dag, &rpl->dags, list) {
+                                    current_class = dag->node_class;
+                                    goto found_class;
+                            }
+                    }
+            }
+    found_class:
+
+            /* Check adaptive recommendation */
+            int rec = hymrpl_adaptive_get_recommendation(
+                    &g_adaptive, current_class);
+
+            if (rec < 0)
+                    return;  /* No change recommended */
+
+            /* Apply adaptive decision (same rate limiting as FIFO) */
+            ev_tstamp now = ev_now(EV_A);
+            if ((now - g_fifo_sec.last_switch_time) <
+                HYMRPL_MIN_SWITCH_INTERVAL) {
+                    flog(LOG_INFO,
+                         "HYMRPL adaptive: switch deferred (rate limit)");
+                    return;
+            }
+
+            uint8_t new_class = (uint8_t)rec;
+            list_for_each_entry(iface, &ifaces, list) {
+                    iface->node_class = new_class;
+                    list_for_each_entry(rpl, &iface->rpls, list) {
+                            list_for_each_entry(dag, &rpl->dags, list) {
+                                    if (dag->node_class != new_class) {
+                                            flog(LOG_INFO,
+                                                 "HYMRPL adaptive: switch "
+                                                 "%s -> %s (score=%.3f)",
+                                                 dag->node_class == HYMRPL_CLASS_S ? "S" : "N",
+                                                 new_class == HYMRPL_CLASS_S ? "S" : "N",
+                                                 g_adaptive.last_score);
+                                            dag->node_class = new_class;
+                                    }
+                            }
+                    }
+            }
+            g_fifo_sec.last_switch_time = now;
+    }
+
+5. In main(), after ev_signal_start for SIGINT, add the periodic timer:
+
+        /* HyMRPL: periodic check (FIFO + adaptive) */
+        static ev_timer hymrpl_periodic_w;
+        ev_timer_init(&hymrpl_periodic_w, hymrpl_periodic_cb, 1.0, 1.0);
+        ev_timer_start(loop, &hymrpl_periodic_w);
+
+6. In process_dio(), when a parent change is detected, notify adaptive:
+
+    After the block that detects parent adoption:
+        /* HyMRPL: notify adaptive engine of parent change */
+        if (g_adaptive_enabled)
+                hymrpl_adaptive_parent_changed(&g_adaptive, &addr->sin6_addr);
+
+7. In process_daoack(), record DAO success:
+
+    After receiving a valid DAO-ACK:
+        /* HyMRPL: record successful DAO delivery */
+        if (g_adaptive_enabled)
+                hymrpl_adaptive_record_dao(&g_adaptive, true);
+
+=== CHANGES TO meson.build ===
+
+Add to the sources list:
+    'hymrpl_adaptive.c',
+
+Add dependency:
+    openssl_dep = dependency('openssl', required: false)
+    if openssl_dep.found()
+        deps += openssl_dep
+    endif
+
+Add hymrpl_cmd as a separate executable:
+    executable('hymrpl_cmd',
+               'hymrpl_cmd.c',
+               dependencies: [openssl_dep])
+
+=== NEW FILE: /etc/hymrpl/fifo.token ===
+
+Generated by: hymrpl_cmd --gen-token
+
+Contains 64 hex characters (32 bytes) of random data.
+Must be readable only by root (mode 0600).
+Same token must be present on the node running rpld AND
+on any process that needs to send FIFO commands.
+
+=== USAGE ===
+
+1. Generate token (once, on the node):
+   $ sudo hymrpl_cmd --gen-token
+
+2. Start rpld (token is loaded automatically):
+   $ sudo rpld -C /tmp/lowpan-sensor5.conf -m stderr
+
+3. Send authenticated class switch:
+   $ sudo hymrpl_cmd CLASS_N
+
+4. Or let the adaptive engine decide automatically (no external action needed).
+
+=== BACKWARD COMPATIBILITY ===
+
+If /etc/hymrpl/fifo.token does NOT exist:
+- FIFO accepts plain "CLASS_S\n" / "CLASS_N\n" commands (legacy mode)
+- A warning is logged: "FIFO authentication DISABLED (insecure mode)"
+- Rate limiting still applies
+- This allows existing test scripts to work without modification
+
+=== SECURITY PROPERTIES ===
+
+1. Authentication: HMAC-SHA256 with 256-bit shared secret
+   - Prevents unauthorized processes from changing node class
+   - Token stored with 0600 permissions (root-only)
+
+2. Replay Protection: Monotonically increasing nonce (µs timestamp)
+   - Each command must have a nonce > last accepted nonce
+   - Prevents replay of captured FIFO messages
+
+3. Rate Limiting:
+   - Minimum 10 seconds between switches
+   - Maximum 3 switches per minute
+   - Prevents rapid oscillation attacks
+
+4. Restricted Permissions:
+   - FIFO created with mode 0600 (owner read/write only)
+   - Only root can write to the FIFO
+
+5. Audit Logging:
+   - All switch attempts (successful and failed) are logged
+   - Includes authentication status, nonce, and reason for rejection
+
