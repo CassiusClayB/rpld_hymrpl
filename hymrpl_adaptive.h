@@ -33,6 +33,10 @@
 /* PDR tracking window */
 #define HYMRPL_PDR_WINDOW   20  /* Number of DAO-ACKs to track */
 
+/* A DAO without a DAO-ACK within this many seconds counts as a delivery
+ * failure (a 0 sample) in the PDR sliding window. */
+#define HYMRPL_DAO_ACK_TIMEOUT  6.0
+
 /* Stability tracking */
 #define HYMRPL_STABILITY_WINDOW  60.0  /* Seconds to track parent changes */
 #define HYMRPL_STABILITY_NMAX   3      /* Max changes before s_stab = 0 */
@@ -65,6 +69,10 @@ struct hymrpl_adaptive {
         uint8_t pdr_window[HYMRPL_PDR_WINDOW];
         int pdr_idx;
         int pdr_count;
+
+        /* Outstanding DAO awaiting a DAO-ACK (for PDR failure detection) */
+        bool dao_awaiting;
+        ev_tstamp dao_sent_time;
 
         /* Topological stability tracking (continuous index) */
         ev_tstamp parent_change_times[HYMRPL_STABILITY_NMAX + 1];
@@ -118,6 +126,21 @@ void hymrpl_adaptive_record_dao(struct hymrpl_adaptive *adp, bool success);
  */
 void hymrpl_adaptive_parent_changed(struct hymrpl_adaptive *adp,
                                      const struct in6_addr *new_parent);
+
+/* --- Module-level notification wrappers ---
+ * These act on the active engine instance (set at init) and are safe to
+ * call from the protocol code (process.c) without access to daemon globals.
+ * They are no-ops on root nodes, where no adaptive engine is running.
+ */
+
+/* A DAO was just transmitted toward the parent/root (starts ACK timeout). */
+void hymrpl_adaptive_notify_dao_sent(void);
+
+/* A DAO-ACK was received (records a success in the PDR window). */
+void hymrpl_adaptive_notify_dao_ack(void);
+
+/* The RPL parent changed to a different neighbor (updates stability). */
+void hymrpl_adaptive_notify_parent_change(const struct in6_addr *new_parent);
 
 /*
  * Get the current recommendation with hysteresis applied.

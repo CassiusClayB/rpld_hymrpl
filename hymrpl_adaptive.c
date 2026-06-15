@@ -38,6 +38,11 @@ static void adaptive_eval_cb(EV_P_ ev_timer *w, int revents);
 static float read_energy(const char *path);
 static void compute_pdr(struct hymrpl_adaptive *adp);
 
+/* Active engine instance (one per daemon, non-root nodes only).
+ * Set by hymrpl_adaptive_init(); used by the notify_* wrappers so the
+ * protocol code can feed metrics without touching daemon globals. */
+static struct hymrpl_adaptive *g_active = NULL;
+
 /* Simple HMAC-SHA256 using /proc or openssl CLI as fallback.
  * For production, link against libcrypto. For this implementation
  * we use a lightweight approach suitable for embedded Linux.
@@ -74,6 +79,13 @@ void hymrpl_adaptive_init(struct hymrpl_adaptive *adp, const char *ifname,
 
         /* Initialize PDR window to all successes */
         memset(adp->pdr_window, 1, sizeof(adp->pdr_window));
+
+        /* No DAO outstanding yet */
+        adp->dao_awaiting = false;
+        adp->dao_sent_time = 0;
+
+        /* Register as the active engine for the notify_* wrappers */
+        g_active = adp;
 
         /* Start periodic evaluation timer */
         ev_timer_init(&adp->eval_w, adaptive_eval_cb,
@@ -229,6 +241,15 @@ static void adaptive_eval_cb(EV_P_ ev_timer *w, int revents)
 {
         struct hymrpl_adaptive *adp = container_of(w, struct hymrpl_adaptive, eval_w);
 
+        /* PDR failure detection: a DAO that was never acknowledged within
+         * HYMRPL_DAO_ACK_TIMEOUT counts as a delivery failure (0 sample). */
+        if (adp->dao_awaiting &&
+            (ev_now(EV_DEFAULT) - adp->dao_sent_time) > HYMRPL_DAO_ACK_TIMEOUT) {
+                adp->dao_awaiting = false;
+                hymrpl_adaptive_record_dao(adp, false);
+                flog(LOG_INFO, "HYMRPL adaptive: DAO-ACK timeout, PDR failure recorded");
+        }
+
         /* Update energy reading with EMA smoothing */
         float raw_energy = read_energy(adp->battery_path) / 100.0f;
         adp->energy_pct = raw_energy * 100.0f;
@@ -287,6 +308,34 @@ int hymrpl_adaptive_get_recommendation(struct hymrpl_adaptive *adp,
              recommended == HYMRPL_CLASS_S ? "S" : "N",
              adp->hysteresis_counter, HYMRPL_HYSTERESIS_CYCLES);
         return -1;
+}
+
+
+/* ================================================================
+ * NOTIFICATION WRAPPERS (called from process.c)
+ * ================================================================ */
+
+void hymrpl_adaptive_notify_dao_sent(void)
+{
+        if (!g_active)
+                return;
+        g_active->dao_awaiting = true;
+        g_active->dao_sent_time = ev_now(EV_DEFAULT);
+}
+
+void hymrpl_adaptive_notify_dao_ack(void)
+{
+        if (!g_active)
+                return;
+        g_active->dao_awaiting = false;
+        hymrpl_adaptive_record_dao(g_active, true);
+}
+
+void hymrpl_adaptive_notify_parent_change(const struct in6_addr *new_parent)
+{
+        if (!g_active)
+                return;
+        hymrpl_adaptive_parent_changed(g_active, new_parent);
 }
 
 

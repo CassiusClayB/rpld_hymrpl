@@ -16,6 +16,7 @@
 #include "dag.h"
 #include "log.h"
 #include "rpl.h"
+#include "hymrpl_adaptive.h"
 
 static void process_dio(int sock, struct iface *iface, const void *msg,
                         size_t len, struct sockaddr_in6 *addr)
@@ -111,6 +112,10 @@ static void process_dio(int sock, struct iface *iface, const void *msg,
                        sizeof(dag->parent->addr));
                 dag->parent->rank = UINT16_MAX; /* will be set below */
                 dag->parent_last_seen = ev_now(EV_DEFAULT);
+
+                /* HyMRPL: a genuine parent switch — feed the adaptive
+                 * stability index (no-op on root / when adaptive disabled). */
+                hymrpl_adaptive_notify_parent_change(&addr->sin6_addr);
         }
 
         if (rank > dag->parent->rank)
@@ -136,9 +141,11 @@ static void process_dio(int sock, struct iface *iface, const void *msg,
         case RPL_DIO_STORING_NO_MULTICAST:
         case RPL_DIO_STORING_MULTICAST:
                 send_dao(sock, &dag->parent->addr, dag);
+                hymrpl_adaptive_notify_dao_sent();
                 break;
         case RPL_DIO_NONSTORING:
                 send_dao(sock, &dag->dodagid, dag);
+                hymrpl_adaptive_notify_dao_sent();
                 break;
         case RPL_DIO_HYBRID:
                 /*
@@ -158,6 +165,7 @@ static void process_dio(int sock, struct iface *iface, const void *msg,
                         send_dao(sock, &dag->dodagid, dag);
                         flog(LOG_INFO, "HYMRPL: sent DAO to root");
                 }
+                hymrpl_adaptive_notify_dao_sent();
                 break;
         default:
                 break;

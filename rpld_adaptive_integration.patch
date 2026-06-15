@@ -38,7 +38,8 @@
                 list_for_each_entry(iface_tmp, &ifaces, list) {
                         if (!iface_tmp->dodag_root) {
                                 g_adaptive_enabled = true;
-                                hymrpl_adaptive_init(&g_adaptive, loop);
+                                hymrpl_adaptive_init(&g_adaptive,
+                                                     iface_tmp->ifname, loop);
                                 flog(LOG_INFO,
                                      "HYMRPL: adaptive engine enabled "
                                      "(non-root node)");
@@ -46,6 +47,10 @@
                         }
                 }
         }
+
+    Note: hymrpl_adaptive_init() takes (engine, ifname, loop). The ifname
+    selects the per-interface battery file. The init also registers the
+    engine as the "active" instance used by the notify_* wrappers below.
 
 4. Add a new periodic timer callback for FIFO + adaptive checks:
 
@@ -123,19 +128,31 @@
         ev_timer_init(&hymrpl_periodic_w, hymrpl_periodic_cb, 1.0, 1.0);
         ev_timer_start(loop, &hymrpl_periodic_w);
 
-6. In process_dio(), when a parent change is detected, notify adaptive:
+6. In process.c (process_dio), feed the adaptive engine. The protocol code
+   does NOT touch the daemon globals; it uses the notify_* wrappers from
+   hymrpl_adaptive.c, which are no-ops on root / when adaptive is disabled.
 
-    After the block that detects parent adoption:
-        /* HyMRPL: notify adaptive engine of parent change */
-        if (g_adaptive_enabled)
-                hymrpl_adaptive_parent_changed(&g_adaptive, &addr->sin6_addr);
+   a) When a new parent is adopted (the branch that runs after the previous
+      parent was invalidated), record the topological change:
 
-7. In process_daoack(), record DAO success:
+        /* HyMRPL: genuine parent switch — feed stability index */
+        hymrpl_adaptive_notify_parent_change(&addr->sin6_addr);
 
-    After receiving a valid DAO-ACK:
-        /* HyMRPL: record successful DAO delivery */
-        if (g_adaptive_enabled)
-                hymrpl_adaptive_record_dao(&g_adaptive, true);
+   b) Right after each send_dao() that transmits toward parent/root (the
+      Storing, Non-Storing and Hybrid branches), mark the outstanding DAO:
+
+        hymrpl_adaptive_notify_dao_sent();
+
+7. In process.c (process_daoack), after the DAO-ACK is matched to a dag,
+   record a PDR success:
+
+        /* HyMRPL: DAO-ACK confirms delivery — PDR success */
+        hymrpl_adaptive_notify_dao_ack();
+
+   PDR failures are detected internally: the periodic evaluation pushes a
+   0 sample when an outstanding DAO is not acknowledged within
+   HYMRPL_DAO_ACK_TIMEOUT seconds. No timers or messages are added to the
+   network — the standard RPL DIO/DAO/DAO-ACK/DIS messages are unchanged.
 
 === CHANGES TO meson.build ===
 

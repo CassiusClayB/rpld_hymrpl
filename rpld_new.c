@@ -157,9 +157,13 @@ static void parent_check_cb(EV_P_ ev_timer *w, int revents)
         ev_timer_set(&dag->trickle_w, 1.0, dag->trickle_t);
         ev_timer_start(EV_A_ &dag->trickle_w);
 
-        /* Notify adaptive engine */
-        if (g_adaptive_enabled)
-                hymrpl_adaptive_parent_changed(&g_adaptive, NULL);
+        /*
+         * Note: the adaptive stability index is NOT updated here.
+         * Invalidating a silent parent is only the detection step; the
+         * actual parent change is counted once, when a new parent is
+         * adopted in process_dio() via hymrpl_adaptive_notify_parent_change().
+         * This avoids double-counting a single disruption.
+         */
 
         flog(LOG_INFO,
              "HYMRPL: parent invalidated, accepting next DIO from any neighbor");

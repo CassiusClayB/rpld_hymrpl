@@ -14,7 +14,7 @@ and checks in the rpld logs whether the adaptive engine made the correct decisio
 Scenarios:
   Phase A: Stable, battery 100% → expects S (score ~1.0)
   Phase B: Battery drops to 10% → expects N (score ~0.43)
-  Phase C: Battery back to 100%, link degraded 30% → expects N or borderline S
+  Phase C: Battery back to 100%, link degraded 30% → expects borderline S (score ~0.76)
   Phase D: Everything recovers → expects S
   Phase E: Parent change (link down/up) → expects temporary N
   Phase F: Stabilizes → expects S
@@ -283,7 +283,7 @@ def run_experiment(sensors, run_id):
         # (name, desc, battery, loss_pct, do_parent_change, wait_s, expected_class)
         ("A", "Stable, bat=100%",       100,  0, False, 20, "S"),
         ("B", "Low battery 10%",          10,  0, False, 25, "N"),
-        ("C", "Bat=100%, loss=30%",      100, 30, False, 25, "N"),
+        ("C", "Bat=100%, loss=30%",      100, 30, False, 25, "S"),
         ("D", "Everything recovers",     100,  0, False, 25, "S"),
         ("E", "Parent change",           100,  0, True,  30, "N"),
         ("F", "Stabilizes",              100,  0, False, 30, "S"),
