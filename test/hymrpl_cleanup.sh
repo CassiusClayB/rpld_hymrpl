@@ -8,7 +8,8 @@
 killall -9 rpld 2>/dev/null
 
 # Kill mininet-related python processes (but not our orchestrator)
-pkill -9 -f "python3.*hymrpl_topology\|python3.*mn_wifi\|python3.*mininet" 2>/dev/null
+# NOTE: we do NOT pkill python here — net.stop() already handles cleanup.
+# Killing python processes matching 'mininet' would kill the benchmark itself.
 
 # Remove network namespaces
 ip -all netns delete 2>/dev/null

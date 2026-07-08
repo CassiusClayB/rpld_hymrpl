@@ -28,6 +28,7 @@ log() { echo "[$(date +%H:%M:%S)] $*" >> "$LOG"; echo "$*"; }
 
 safe_cleanup() {
     killall -9 rpld 2>/dev/null
+    ip -all netns delete 2>/dev/null
     rmmod mac802154_hwsim 2>/dev/null
     sleep 3
 }

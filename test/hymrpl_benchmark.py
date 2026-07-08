@@ -484,8 +484,8 @@ def main():
 
         # Manual cleanup — ensures everything died
         subprocess.run('killall -9 rpld 2>/dev/null', shell=True)
-        subprocess.run('bash /home/wifi/rpld_hymrpl/test/hymrpl_cleanup.sh', shell=True, capture_output=True)
-        time.sleep(3)
+        subprocess.run('ip -all netns delete 2>/dev/null', shell=True)
+        time.sleep(2)
         subprocess.run('modprobe -r mac802154_hwsim 2>/dev/null', shell=True)
         time.sleep(5)
 
