@@ -294,7 +294,7 @@ rpld_hymrpl/
 
 A ready-to-use VM with the complete environment configured (kernel 6.11 with SRH, rpld with HyMRPL patches, Mininet-WiFi with 6LoWPAN) is available for download:
 
-**[Download VM (OVA ~7 GB)](https://drive.google.com/file/d/1gqdqieW8yGN4DSRTHHDztnRtNtA46LMs/view?usp=sharing)**
+**[Download VM (OVA ~7 GB)](https://drive.google.com/file/d/1zLDT_xyQZmQnQcqBbprdYoTA1YF5jUhH/view?usp=drive_link)**
 
 To import:
 1. Open VirtualBox and go to `File > Import Appliance`
