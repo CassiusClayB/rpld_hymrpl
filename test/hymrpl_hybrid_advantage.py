@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
 """
-HyMRPL — Experimento que demonstra a vantagem do modo híbrido.
+HyMRPL — Experiment that demonstrates the advantage of hybrid mode.
 
-Topologia com classes mistas que evidenciam a diferença:
+Topology with mixed classes that highlight the difference:
     sensor1 (Root, S)
        /        \
   sensor2(N)   sensor3(S)
                   |
-               sensor4(S)   ← storing-like, mantém rotas locais
+               sensor4(S)   ← storing-like, keeps local routes
                   |
-               sensor5(N)   ← non-storing, nó com restrição/móvel
+               sensor5(N)   ← non-storing, constrained/mobile node
 
-Cenários:
-  1. Estático: compara latência local sensor4->sensor5 nos 3 modos
-     - No hybrid, sensor4(S) tem rota local pra sensor5 → latência baixa
-     - No nonstoring, tudo via SRH pelo root → latência alta
-     - No storing, tudo hop-by-hop → latência baixa
+Scenarios:
+  1. Static: compares local latency sensor4->sensor5 across the 3 modes
+     - In hybrid, sensor4(S) has a local route to sensor5 → low latency
+     - In nonstoring, everything via SRH through the root → high latency
+     - In storing, everything hop-by-hop → low latency
 
-  2. Troca dinâmica: sensor5 começa N, depois troca pra S via FIFO
-     - Mostra que o hybrid adapta o encaminhamento em runtime
+  2. Dynamic switch: sensor5 starts as N, then switches to S via FIFO
+     - Shows that hybrid adapts the forwarding at runtime
 
-  3. Degradação seletiva: perda de pacotes só no caminho N (sensor2)
-     - Mostra que o caminho S (sensor3->sensor4) não é afetado
+  3. Selective degradation: packet loss only on the N path (sensor2)
+     - Shows that the S path (sensor3->sensor4) is not affected
 
-Uso: sudo python3 hymrpl_hybrid_advantage.py [--runs 3]
+Usage: sudo python3 hymrpl_hybrid_advantage.py [--runs 3]
 """
 
 import time, re, csv, os, statistics
@@ -36,13 +36,13 @@ PREFIX = "fd3c:be8a:173f:8e80"
 DODAGID = PREFIX + "::1"
 RESULTS_DIR = "/tmp/hymrpl_results"
 
-# Classes que mostram a vantagem do hybrid
+# Classes that show the advantage of hybrid
 HYBRID_CLASSES = {
     'sensor1': 'S',  # Root
-    'sensor2': 'N',  # Non-storing (restrição energética)
-    'sensor3': 'S',  # Storing (estável, com recursos)
-    'sensor4': 'S',  # Storing (estável, com recursos)
-    'sensor5': 'N',  # Non-storing (móvel/restrito)
+    'sensor2': 'N',  # Non-storing (energy constraint)
+    'sensor3': 'S',  # Storing (stable, with resources)
+    'sensor4': 'S',  # Storing (stable, with resources)
+    'sensor5': 'N',  # Non-storing (mobile/constrained)
 }
 
 
@@ -202,11 +202,11 @@ def count_routes(sensor):
 
 def run_experiment(sensors, mode, run_id):
     """
-    Cenário completo:
-      1. Baseline: mede todos os pares
-      2. Tráfego local sensor4->sensor5 (mostra vantagem do storing local)
-      3. Degradação no caminho N (sensor2): 20% loss
-      4. Mede impacto no caminho S (sensor3->sensor4->sensor5) — deve ser zero
+    Complete scenario:
+      1. Baseline: measures all pairs
+      2. Local traffic sensor4->sensor5 (shows advantage of local storing)
+      3. Degradation on the N path (sensor2): 20% loss
+      4. Measures impact on the S path (sensor3->sensor4->sensor5) — should be zero
     """
     info("=== {} | Run {} ===\n".format(mode.upper(), run_id))
     results = {"mode": mode, "run": run_id}
