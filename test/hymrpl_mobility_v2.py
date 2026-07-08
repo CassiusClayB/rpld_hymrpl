@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """
-HyMRPL — Mobility experiment v2
+HyMRPL — Experimento de mobilidade v2
 
-Uses ip link down/up and tc netem to simulate real mobility:
-  - Progressive link degradation (packet loss via tc netem)
-  - Handover via interface deactivation/activation
-  - Network departure and re-entry
-  - Random packet loss for realistic scenario
+Usa ip link down/up e tc netem para simular mobilidade real:
+  - Degradação progressiva de enlace (packet loss via tc netem)
+  - Handover via desativação/ativação de interfaces
+  - Saída e reentrada na rede
+  - Perda aleatória de pacotes para cenário realista
 
-Phases:
-  A: Baseline — sensor5 connected to sensor4, no loss
-  B: Degradation — 10% packet loss on sensor4-sensor5 link
-  C: Handover — link sensor4-sensor5 down, sensor5 reconnects via sensor3
-  D: Stabilization — sensor5 connected to sensor3, no loss
-  E: Departure — total link down, sensor5 out of network
-  F: Re-entry — link up, sensor5 returns to network
+Fases:
+  A: Baseline — sensor5 conectado a sensor4, sem perda
+  B: Degradação — 10% packet loss no enlace sensor4-sensor5
+  C: Handover — link sensor4-sensor5 down, sensor5 reconecta via sensor3
+  D: Estabilização — sensor5 conectado a sensor3, sem perda
+  E: Saída — link down total, sensor5 fora da rede
+  F: Reentrada — link up, sensor5 volta à rede
 
-Topology created ONCE, reused for all modes.
-Usage: sudo python3 hymrpl_mobility_v2.py [--runs 3] [--modes storing nonstoring hybrid]
+Topologia criada UMA vez, reutilizada pra todos os modos.
+Uso: sudo python3 hymrpl_mobility_v2.py [--runs 3] [--modes storing nonstoring hybrid]
 """
 
 import time, re, csv, os, sys, statistics
@@ -25,6 +25,10 @@ from datetime import datetime
 from mininet.log import setLogLevel, info
 from mn_wifi.sixLoWPAN.link import LoWPAN
 from mn_wifi.net import Mininet_wifi
+
+# HyMRPL: ensure adaptive engine agrees with configured classes
+import sys; sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from hymrpl_helpers import setup_battery_for_topology, ensure_token
 
 PREFIX = "fd3c:be8a:173f:8e80"
 DODAGID = PREFIX + "::1"
@@ -234,6 +238,9 @@ def run_mobility(sensors, mode, run_id):
     time.sleep(3)
 
     # Start rpld and wait for convergence
+    # HyMRPL: set battery so adaptive engine agrees with configured classes
+    setup_battery_for_topology(sensors, HYBRID_CLASSES)
+
     start_rpld(sensors, mode)
     info("  Waiting for initial convergence...\n")
     target_addr = wait_for_global_addr(sensors[4])

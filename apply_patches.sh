@@ -1,7 +1,7 @@
 #!/bin/bash
-# HyMRPL — Aplica as modificações no rpld original
-# Rodar dentro da VM, na pasta do rpld clonado
-# Uso: bash apply_patches.sh /caminho/para/rpld /caminho/para/rpld_hymrpl
+# HyMRPL — Apply modifications to the original rpld
+# Run inside the VM, in the cloned rpld directory
+# Usage: bash apply_patches.sh /path/to/rpld /path/to/rpld_hymrpl
 
 set -e
 
@@ -9,17 +9,17 @@ RPLD_DIR="${1:-$HOME/rpld}"
 HYMRPL_DIR="${2:-$HOME/rpld_hymrpl}"
 
 if [ ! -f "${RPLD_DIR}/rpld.c" ]; then
-    echo "ERRO: rpld não encontrado em ${RPLD_DIR}"
+    echo "ERROR: rpld not found at ${RPLD_DIR}"
     exit 1
 fi
 
-echo "=== Aplicando patches HyMRPL no rpld ==="
+echo "=== Applying HyMRPL patches to rpld ==="
 echo "rpld: ${RPLD_DIR}"
 echo "hymrpl: ${HYMRPL_DIR}"
 echo ""
 
-# Backup dos originais
-echo "[1/6] Backup dos originais..."
+# Back up originals
+echo "[1/6] Backing up originals..."
 mkdir -p "${RPLD_DIR}/backup_original"
 cp "${RPLD_DIR}/rpl.h" "${RPLD_DIR}/backup_original/"
 cp "${RPLD_DIR}/dag.h" "${RPLD_DIR}/backup_original/"
@@ -28,28 +28,28 @@ cp "${RPLD_DIR}/config.h" "${RPLD_DIR}/backup_original/"
 cp "${RPLD_DIR}/config.c" "${RPLD_DIR}/backup_original/"
 cp "${RPLD_DIR}/process.c" "${RPLD_DIR}/backup_original/"
 
-# Substituir arquivos completos
-echo "[2/6] Substituindo rpl.h..."
+# Replace complete files
+echo "[2/6] Replacing rpl.h..."
 cp "${HYMRPL_DIR}/rpl.h" "${RPLD_DIR}/rpl.h"
 
-echo "[3/6] Substituindo dag.h..."
+echo "[3/6] Replacing dag.h..."
 cp "${HYMRPL_DIR}/dag.h" "${RPLD_DIR}/dag.h"
 
-echo "[4/6] Substituindo config.h..."
+echo "[4/6] Replacing config.h..."
 cp "${HYMRPL_DIR}/config.h" "${RPLD_DIR}/config.h"
 
-echo "[5/6] Substituindo process.c..."
+echo "[5/6] Replacing process.c..."
 cp "${HYMRPL_DIR}/process.c" "${RPLD_DIR}/process.c"
 
-# Aplicar patches manuais no dag.c e config.c
-echo "[6/6] Aplicando patches no dag.c e config.c..."
+# Apply manual patches to dag.c and config.c
+echo "[6/6] Applying patches to dag.c and config.c..."
 
-# --- dag.c: adicionar node_class init ---
+# --- dag.c: add node_class init ---
 sed -i 's/dag->mop = mop;/dag->mop = mop;\n\tdag->node_class = HYMRPL_CLASS_S;  \/* HyMRPL: default storing-like *\/\n\tdag->parent_last_seen = ev_now(EV_DEFAULT);  \/* HyMRPL: avoid false liveness timeout *\//' \
     "${RPLD_DIR}/dag.c"
 
-# --- dag.c: substituir switch no dag_build_dao ---
-# Trocar o switch case de build_dao para incluir RPL_DIO_HYBRID
+# --- dag.c: replace switch in dag_build_dao ---
+# Replace the build_dao switch case to include RPL_DIO_HYBRID
 sed -i '/switch (dag->mop) {/{
 N;N;N;N;N;N;N;N;N;N;N;N
 /case RPL_DIO_STORING_NO_MULTICAST.*case RPL_DIO_STORING_MULTICAST.*list_for_each_entry(child, &dag->childs.*default:/c\
@@ -77,7 +77,7 @@ N;N;N;N;N;N;N;N;N;N;N;N
 \tdefault:
 }' "${RPLD_DIR}/dag.c"
 
-# --- config.c: adicionar leitura de node_class no config_load_dags ---
+# --- config.c: add node_class reading in config_load_dags ---
 sed -i '/mop = RPL_DIO_STORING_NO_MULTICAST;/{
 N;N;
 s/lua_pop(L, 1);/lua_pop(L, 1);\
@@ -96,7 +96,7 @@ s/lua_pop(L, 1);/lua_pop(L, 1);\
 sed -i 's/if (!dag)/if (dag) dag->node_class = dag_node_class;\n\t\t\t\tif (!dag)/' \
     "${RPLD_DIR}/config.c"
 
-# --- config.c: adicionar leitura de node_class na iface ---
+# --- config.c: add node_class reading in iface ---
 sed -i '/iface->mop = lua_tonumber(L, -1);/{
 N;
 s/lua_pop(L, 1);/lua_pop(L, 1);\
@@ -115,18 +115,18 @@ s/lua_pop(L, 1);/lua_pop(L, 1);\
 }' "${RPLD_DIR}/config.c"
 
 echo ""
-echo "=== Patches aplicados! ==="
+echo "=== Patches applied! ==="
 echo ""
-echo "NOTA: O patch rpld_parent_liveness.patch precisa ser aplicado"
-echo "manualmente no rpld.c (ver instruções no arquivo do patch)."
-echo "Ele adiciona detecção de parent liveness para reconvergência"
-echo "em topologias mesh."
+echo "NOTE: The rpld_parent_liveness.patch needs to be applied"
+echo "manually to rpld.c (see instructions in the patch file)."
+echo "It adds parent liveness detection for reconvergence"
+echo "in mesh topologies."
 echo ""
-echo "Compilar:"
+echo "Compile:"
 echo "  cd ${RPLD_DIR}"
 echo "  rm -rf build"
 echo "  meson build"
 echo "  ninja -C build"
 echo ""
-echo "Testar:"
+echo "Test:"
 echo "  sudo ./build/rpld -c /etc/rpld/lowpan0_hybrid.conf"

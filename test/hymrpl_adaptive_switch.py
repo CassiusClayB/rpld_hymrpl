@@ -1,38 +1,37 @@
 #!/usr/bin/env python3
 """
-HyMRPL — Adaptive class switch experiment.
+HyMRPL — Experimento de troca adaptativa de classe (motor integrado).
 
-Automatic decision based on 3 criteria:
-  1. Packet loss (PDR): if PDR < 80% → favors N
-  2. Residual energy: if battery < 30% → favors N (less overhead)
-  3. Mobility (parent stability): if parent changed recently → favors N
+Valida que o motor adaptativo integrado no rpld decide corretamente
+a classe do nó baseado em 3 critérios:
+  1. PDR (medido internamente via DAO-ACK)
+  2. Energia residual (lido de /tmp/hymrpl_battery)
+  3. Estabilidade do parent (detecção interna de parent change)
 
-Decision logic:
-  score = w_pdr * score_pdr + w_energy * score_energy + w_mobility * score_mobility
-  If score >= THRESHOLD → Class S (stable node, with resources)
-  If score <  THRESHOLD → Class N (unstable node, constrained)
+O teste NÃO envia comandos FIFO — apenas manipula as condições
+e verifica nos logs do rpld se o motor adaptativo tomou a decisão correta.
 
-Simulated scenarios:
-  Phase A: sensor5 stable, full battery, no loss → should be S
-  Phase B: link degradation (20% loss) → PDR drops → should switch to N
-  Phase C: link recovers, but low battery (simulated) → stays N
-  Phase D: good link + ok battery + stable → switches back to S
-  Phase E: mobility (simulated parent change) → switches to N
-  Phase F: stabilizes on new parent → switches back to S
+Cenários:
+  Fase A: Estável, bateria 100% → espera S (score ~1.0)
+  Fase B: Bateria cai pra 10% → espera N (score ~0.43)
+  Fase C: Bateria volta pra 100%, link degradado 30% → espera N ou S limítrofe
+  Fase D: Tudo recupera → espera S
+  Fase E: Parent change (link down/up) → espera N temporário
+  Fase F: Estabiliza → espera S
 
-Topology:
+Topologia:
     sensor1 (Root, S)
        /        \\
   sensor2(N)   sensor3(S)
                   |
                sensor4(S)
                   |
-               sensor5(adaptive)
+               sensor5(adaptativo)
 
-Usage: sudo python3 hymrpl_adaptive_switch.py [--runs 3]
+Uso: sudo python3 hymrpl_adaptive_switch.py [--runs 3]
 """
 
-import time, re, csv, os, statistics, random
+import time, re, csv, os, statistics
 from datetime import datetime
 from mininet.log import setLogLevel, info
 from mn_wifi.sixLoWPAN.link import LoWPAN
@@ -41,82 +40,14 @@ from mn_wifi.net import Mininet_wifi
 PREFIX = "fd3c:be8a:173f:8e80"
 DODAGID = PREFIX + "::1"
 RESULTS_DIR = "/tmp/hymrpl_results"
-FIFO_PATH = "/tmp/hymrpl_cmd"
-
-# --- Adaptive decision parameters ---
-W_PDR = 0.4        # packet loss weight
-W_ENERGY = 0.3     # residual energy weight
-W_MOBILITY = 0.3   # stability (mobility) weight
-THRESHOLD = 0.75    # score >= threshold → Class S
 
 HYBRID_CLASSES = {
     'sensor1': 'S',
     'sensor2': 'N',
     'sensor3': 'S',
     'sensor4': 'S',
-    'sensor5': 'N',  # initial, will be managed by adaptive logic
+    'sensor5': 'S',  # starts as S, adaptive will manage
 }
-
-
-class AdaptiveClassManager:
-    """
-    Adaptive class manager for a node.
-    Combines 3 metrics to decide if the node should be S or N.
-    """
-
-    def __init__(self, node_name, w_pdr=W_PDR, w_energy=W_ENERGY,
-                 w_mobility=W_MOBILITY, threshold=THRESHOLD):
-        self.node_name = node_name
-        self.w_pdr = w_pdr
-        self.w_energy = w_energy
-        self.w_mobility = w_mobility
-        self.threshold = threshold
-        self.current_class = 'N'
-        self.history = []
-
-    def compute_score(self, pdr, energy_pct, parent_stable):
-        """
-        Computes composite score:
-          pdr: 0-100 (delivery percentage)
-          energy_pct: 0-100 (remaining battery percentage)
-          parent_stable: True/False (parent hasn't changed in the last N seconds)
-
-        Returns score 0.0-1.0 and the recommended class.
-        """
-        # Normalize PDR: 100% → 1.0, 0% → 0.0
-        score_pdr = min(pdr / 100.0, 1.0)
-
-        # Normalize energy: 100% → 1.0, 0% → 0.0
-        score_energy = min(energy_pct / 100.0, 1.0)
-
-        # Mobility: stable → 1.0, unstable → 0.0
-        score_mobility = 1.0 if parent_stable else 0.0
-
-        score = (self.w_pdr * score_pdr +
-                 self.w_energy * score_energy +
-                 self.w_mobility * score_mobility)
-
-        recommended = 'S' if score >= self.threshold else 'N'
-
-        decision = {
-            'score': round(score, 3),
-            'score_pdr': round(score_pdr, 3),
-            'score_energy': round(score_energy, 3),
-            'score_mobility': round(score_mobility, 3),
-            'pdr': round(pdr, 1),
-            'energy_pct': round(energy_pct, 1),
-            'parent_stable': parent_stable,
-            'recommended': recommended,
-            'previous': self.current_class,
-            'switched': recommended != self.current_class,
-        }
-
-        self.current_class = recommended
-        self.history.append(decision)
-        return decision
-
-    def get_class(self):
-        return self.current_class
 
 
 def get_iface_name(node):
@@ -256,30 +187,52 @@ def measure_pdr_latency(src, dst_addr, count=30):
     return {"pdr": pdr, "lat_avg": lat_avg, "lat_p95": percentile(lat_values, 95)}
 
 
-def send_fifo_cmd(sensor, cmd_str):
-    sensor.cmd('echo "{}" > {} 2>/dev/null'.format(cmd_str, FIFO_PATH))
-    info("  FIFO: sent '{}' to {}\n".format(cmd_str, sensor.name))
-
-
-def simulate_parent_change(sensor):
-    """Simulates parent change: brings down and up the link."""
+def set_battery(sensor, level):
+    """Set simulated battery level for the adaptive engine (per-interface)."""
     iface = get_iface_name(sensor)
-    info("  Simulating parent change on {}...\n".format(sensor.name))
-    sensor.cmd('ip link set {} down'.format(iface))
-    time.sleep(3)
-    sensor.cmd('ip link set {} up'.format(iface))
-    time.sleep(5)
+    sensor.cmd('echo {} > /tmp/hymrpl_battery_{}'.format(level, iface))
 
 
 def apply_loss(sensor, loss_pct):
-    """Applies packet loss on the sensor's link."""
+    """Aplica perda de pacotes no link do sensor."""
     iface = get_iface_name(sensor)
     sensor.cmd('tc qdisc del dev {} root 2>/dev/null'.format(iface))
     if loss_pct > 0:
         sensor.cmd('tc qdisc add dev {} root netem loss {}%'.format(iface, loss_pct))
-        info("  Applied {}% loss on {}\n".format(loss_pct, sensor.name))
+        info("    Applied {}% loss on {}\n".format(loss_pct, sensor.name))
     else:
-        info("  Removed loss on {}\n".format(sensor.name))
+        info("    Removed loss on {}\n".format(sensor.name))
+
+
+def get_adaptive_class(sensor):
+    """Get current class from rpld log (last adaptive decision)."""
+    output = sensor.cmd(
+        'grep -oE "class=[SN]|switch [SN] -> [SN]" /tmp/rpld_{}.log 2>/dev/null | tail -1'.format(
+            sensor.name))
+    if 'switch' in output:
+        m = re.search(r'-> ([SN])', output)
+        return m.group(1) if m else None
+    m = re.search(r'class=([SN])', output)
+    return m.group(1) if m else None
+
+
+def get_adaptive_score(sensor):
+    """Get last adaptive score from rpld log."""
+    output = sensor.cmd(
+        'grep -oE "score=[0-9.]+" /tmp/rpld_{}.log 2>/dev/null | tail -1'.format(
+            sensor.name))
+    m = re.search(r'score=([\d.]+)', output)
+    return float(m.group(1)) if m else None
+
+
+def count_adaptive_switches(sensor):
+    """Count total adaptive switches in log."""
+    output = sensor.cmd(
+        'grep -c "adaptive: switch" /tmp/rpld_{}.log 2>/dev/null'.format(sensor.name))
+    try:
+        return int(output.strip())
+    except ValueError:
+        return 0
 
 
 def count_routes(sensor):
@@ -289,22 +242,18 @@ def count_routes(sensor):
 
 def run_experiment(sensors, run_id):
     """
-    6 phases that exercise the 3 decision criteria:
-
-    Phase A: All stable (high PDR, battery 90%, stable parent) → expects S
-    Phase B: Degraded link 25% loss (PDR drops, battery 80%, stable) → expects N
-    Phase C: Link recovers, low battery 20% (PDR ok, stable) → expects N
-    Phase D: Link ok, battery recovers 70%, stable → expects S
-    Phase E: Mobility (parent change, PDR ok, battery 70%) → expects N
-    Phase F: Stabilizes (PDR ok, battery 65%, stable parent 30s) → expects S
+    6 fases que exercitam o motor adaptativo integrado no rpld.
+    Manipulamos condições externas e verificamos se o rpld decide corretamente.
     """
     info("\n{}\n=== ADAPTIVE SWITCH | Run {} ===\n{}\n".format("=" * 60, run_id, "=" * 60))
     results = {"run": run_id}
-    manager = AdaptiveClassManager('sensor5')
 
     stop_rpld(sensors)
     clean_state(sensors)
     time.sleep(3)
+
+    # Start with battery 100% (adaptive should choose S)
+    set_battery(sensors[4], 100)
 
     start_time = time.time()
     start_rpld(sensors)
@@ -317,7 +266,6 @@ def run_experiment(sensors, run_id):
         return results
 
     root_addr = get_global_addr(sensors[0])
-    addr4 = get_global_addr(sensors[3])
     conv = wait_for_convergence(sensors[0], addr5)
     if conv < 0:
         info("  FAIL: no convergence\n")
@@ -326,93 +274,86 @@ def run_experiment(sensors, run_id):
 
     results["convergence_s"] = round(time.time() - start_time, 2)
     info("  Convergence: {}s\n".format(results["convergence_s"]))
-    time.sleep(10)
+
+    # Wait for adaptive engine to stabilize (5s interval × 3 hysteresis cycles)
+    info("  Waiting for adaptive stabilization (25s)...\n")
+    time.sleep(25)
 
     phases = [
-        # (name, description, loss_pct, energy_pct, parent_stable, do_parent_change)
-        ("A", "Stable, full battery",               0,  90, True,  False),
-        ("B", "Degraded link 25% loss",             25,  80, True,  False),
-        ("C", "Link ok, low battery 20%",            0,  20, True,  False),
-        ("D", "All ok, battery 70%",                 0,  70, True,  False),
-        ("E", "Mobility (parent change)",            0,  70, False, True),
-        ("F", "Stabilized after mobility",           0,  65, True,  False),
+        # (name, desc, battery, loss_pct, do_parent_change, wait_s, expected_class)
+        ("A", "Estável, bat=100%",       100,  0, False, 20, "S"),
+        ("B", "Bateria baixa 10%",        10,  0, False, 25, "N"),
+        ("C", "Bat=100%, loss=30%",      100, 30, False, 25, "N"),
+        ("D", "Tudo recupera",           100,  0, False, 25, "S"),
+        ("E", "Parent change",           100,  0, True,  30, "N"),
+        ("F", "Estabiliza",              100,  0, False, 30, "S"),
     ]
 
-    for phase_name, desc, loss_pct, energy_pct, parent_stable, do_parent_change in phases:
-        info("\n  --- PHASE {}: {} ---\n".format(phase_name, desc))
+    for phase_name, desc, battery, loss_pct, do_parent_change, wait_s, expected in phases:
+        info("\n  --- PHASE {}: {} (expected={}) ---\n".format(phase_name, desc, expected))
 
-        # Apply network conditions
+        # Apply conditions
+        set_battery(sensors[4], battery)
+        info("    Battery set to {}%\n".format(battery))
+
         if do_parent_change:
-            simulate_parent_change(sensors[4])
-            # Re-wait for connectivity
+            iface4 = get_iface_name(sensors[3])
+            info("    Simulating parent loss (link down 3s)...\n")
+            sensors[3].cmd('ip link set {} down'.format(iface4))
+            time.sleep(3)
+            sensors[3].cmd('ip link set {} up'.format(iface4))
             time.sleep(5)
+            # Re-check connectivity
             reconn = wait_for_convergence(sensors[0], addr5, max_attempts=60)
             results["{}_reconvergence_s".format(phase_name)] = round(reconn, 2) if reconn > 0 else -1
-            time.sleep(5)
         else:
             apply_loss(sensors[4], loss_pct)
-            time.sleep(5)
 
-        # Measure actual PDR
-        m = measure_pdr_latency(sensors[0], addr5, count=30)
-        actual_pdr = m["pdr"]
-        info("    Measured PDR: {:.1f}%\n".format(actual_pdr))
+        # Wait for adaptive engine to react
+        info("    Waiting {}s for adaptive decision...\n".format(wait_s))
+        time.sleep(wait_s)
 
-        # Adaptive decision
-        decision = manager.compute_score(actual_pdr, energy_pct, parent_stable)
-        recommended = decision['recommended']
-        info("    Decision: score={:.3f} (pdr={:.3f} energy={:.3f} mob={:.3f}) → {}\n".format(
-            decision['score'], decision['score_pdr'],
-            decision['score_energy'], decision['score_mobility'],
-            recommended))
+        # Check what the adaptive engine decided
+        current_class = get_adaptive_class(sensors[4])
+        current_score = get_adaptive_score(sensors[4])
+        info("    Adaptive result: class={} score={}\n".format(current_class, current_score))
 
-        # Apply class change if needed
-        if decision['switched']:
-            send_fifo_cmd(sensors[4], "CLASS_{}".format(recommended))
-            info("    Waiting for route update (12s)...\n")
-            time.sleep(12)
-        else:
-            info("    No switch needed (already {})\n".format(recommended))
-            time.sleep(3)
+        results["{}_class".format(phase_name)] = current_class
+        results["{}_score".format(phase_name)] = current_score
+        results["{}_expected".format(phase_name)] = expected
+        results["{}_correct".format(phase_name)] = 1 if current_class == expected else 0
 
-        # Measure performance after decision
-        # root → sensor5
+        # Measure performance
         m = measure_pdr_latency(sensors[0], addr5, count=40)
         results["{}_root_s5_lat".format(phase_name)] = round(m["lat_avg"], 3)
-        results["{}_root_s5_p95".format(phase_name)] = round(m["lat_p95"], 3)
         results["{}_root_s5_pdr".format(phase_name)] = round(m["pdr"], 1)
         info("    root→s5: lat={:.3f}ms PDR={:.1f}%\n".format(m["lat_avg"], m["pdr"]))
 
-        # sensor4 → sensor5 (local)
         if addr5:
             m = measure_pdr_latency(sensors[3], addr5, count=40)
             results["{}_s4s5_lat".format(phase_name)] = round(m["lat_avg"], 3)
-            results["{}_s4s5_p95".format(phase_name)] = round(m["lat_p95"], 3)
             results["{}_s4s5_pdr".format(phase_name)] = round(m["pdr"], 1)
             info("    s4→s5:   lat={:.3f}ms PDR={:.1f}%\n".format(m["lat_avg"], m["pdr"]))
-
-        # sensor5 → root
-        if root_addr:
-            m = measure_pdr_latency(sensors[4], root_addr, count=40)
-            results["{}_s5root_lat".format(phase_name)] = round(m["lat_avg"], 3)
-            results["{}_s5root_pdr".format(phase_name)] = round(m["pdr"], 1)
-
-        # Store decision info
-        results["{}_class".format(phase_name)] = recommended
-        results["{}_score".format(phase_name)] = decision['score']
-        results["{}_score_pdr".format(phase_name)] = decision['score_pdr']
-        results["{}_score_energy".format(phase_name)] = decision['score_energy']
-        results["{}_score_mobility".format(phase_name)] = decision['score_mobility']
-        results["{}_energy_pct".format(phase_name)] = energy_pct
-        results["{}_switched".format(phase_name)] = 1 if decision['switched'] else 0
 
         # Routes
         r5 = count_routes(sensors[4])
         results["{}_s5_via".format(phase_name)] = r5["via"]
         results["{}_s5_srh".format(phase_name)] = r5["srh"]
 
+        if current_class == expected:
+            info("    ✓ CORRECT: adaptive chose {} as expected\n".format(expected))
+        else:
+            info("    ✗ MISMATCH: expected {} got {}\n".format(expected, current_class))
+
     # Cleanup
     apply_loss(sensors[4], 0)
+    set_battery(sensors[4], 100)
+
+    # Total switches
+    total_switches = count_adaptive_switches(sensors[4])
+    results["total_switches"] = total_switches
+    info("\n  Total adaptive switches: {}\n".format(total_switches))
+
     return results
 
 
@@ -434,55 +375,48 @@ def print_summary(all_results):
 
     def avg(key):
         vals = [r.get(key) for r in ok if r.get(key) is not None and r.get(key) != -1]
-        if not vals:
-            return None
-        return statistics.mean(vals)
+        return statistics.mean(vals) if vals else None
 
     print("\n" + "=" * 75)
-    print("ADAPTIVE CLASS SWITCH — SUMMARY ({} runs)".format(len(ok)))
+    print("ADAPTIVE ENGINE — SUMMARY ({} runs)".format(len(ok)))
     print("=" * 75)
     print("Convergence: {:.2f}s".format(avg("convergence_s")))
-    print("Weights: PDR={} Energy={} Mobility={} | Threshold={}".format(
-        W_PDR, W_ENERGY, W_MOBILITY, THRESHOLD))
 
-    phases = [
-        ("A", "Stable, bat=90%"),
-        ("B", "25% loss, bat=80%"),
-        ("C", "Link ok, bat=20%"),
-        ("D", "All ok, bat=70%"),
-        ("E", "Parent change, bat=70%"),
-        ("F", "Stabilized, bat=65%"),
-    ]
+    phases = ["A", "B", "C", "D", "E", "F"]
+    descs = ["Estável bat=100%", "Bat=10%", "Bat=100% loss=30%",
+             "Recuperado", "Parent change", "Estabilizado"]
 
-    print("\n{:<6} {:<24} {:>6} {:>7} {:>10} {:>10} {:>10} {:>5}".format(
-        "Phase", "Condition", "Class", "Score", "root→s5", "s4→s5", "PDR", "Sw?"))
+    print("\n{:<6} {:<20} {:>8} {:>8} {:>7} {:>10} {:>10}".format(
+        "Phase", "Condition", "Expected", "Got", "Score", "root→s5", "PDR"))
     print("-" * 75)
 
-    for phase, desc in phases:
-        cls = None
+    correct_total = 0
+    for phase, desc in zip(phases, descs):
+        expected = None
+        got = None
         for r in ok:
-            c = r.get("{}_class".format(phase))
-            if c:
-                cls = c
-                break
+            expected = r.get("{}_expected".format(phase))
+            got = r.get("{}_class".format(phase))
+            break
         score = avg("{}_score".format(phase))
-        rs5 = avg("{}_root_s5_lat".format(phase))
-        s4s5 = avg("{}_s4s5_lat".format(phase))
+        lat = avg("{}_root_s5_lat".format(phase))
         pdr = avg("{}_root_s5_pdr".format(phase))
-        sw = avg("{}_switched".format(phase))
+        correct = avg("{}_correct".format(phase))
+        if correct and correct > 0.5:
+            correct_total += 1
+        mark = "✓" if correct and correct > 0.5 else "✗"
 
-        print("{:<6} {:<24} {:>6} {:>7.3f} {:>8.3f}ms {:>8.3f}ms {:>8.1f}% {:>5}".format(
+        print("{:<6} {:<20} {:>8} {:>6} {} {:>7} {:>8.3f}ms {:>8.1f}%".format(
             phase, desc,
-            cls if cls else "?",
-            score if score else 0,
-            rs5 if rs5 else 0,
-            s4s5 if s4s5 else 0,
-            pdr if pdr else 0,
-            "YES" if sw and sw > 0.5 else "no"))
+            expected if expected else "?",
+            got if got else "?",
+            mark,
+            "{:.3f}".format(score) if score else "?",
+            lat if lat else 0,
+            pdr if pdr else 0))
 
-    print("\nExpected class transitions:")
-    print("  A→S (stable) → B→N (loss) → C→N (low bat) → D→S (recovered)")
-    print("  → E→N (mobility) → F→S (stabilized)")
+    print("\nAccuracy: {}/{} phases correct".format(correct_total, len(phases)))
+    print("Total adaptive switches (avg): {:.1f}".format(avg("total_switches") or 0))
 
 
 def main():
